@@ -1,10 +1,11 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, func
+from sqlalchemy import Column, Integer, String, JSON, DateTime, func, ForeignKey
 from app.db.database import Base
 
 class Dataset(Base):
     __tablename__ = "datasets"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String, index=True)
     source_type = Column(String) # e.g., 'upload', 'database', 'requirement'
     source_filename = Column(String, nullable=True)

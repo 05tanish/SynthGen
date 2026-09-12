@@ -6,6 +6,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     dataset_id = Column(Integer, ForeignKey("datasets.id"))
     
     status = Column(String, default="pending")  # pending, running, completed, failed

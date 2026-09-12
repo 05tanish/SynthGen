@@ -12,6 +12,7 @@ app = FastAPI(
 from app.db.database import Base, engine
 from app.models.dataset import Dataset
 from app.models.job import Job
+from app.models.user import User
 Base.metadata.create_all(bind=engine)
 
 # CORS configuration
@@ -30,6 +31,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["health"])
+from app.api.routes import auth
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 from app.api.routes import datasets
 app.include_router(datasets.router, prefix="/api/datasets", tags=["datasets"])
 from app.api.routes import jobs
