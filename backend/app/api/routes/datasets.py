@@ -16,6 +16,8 @@ import os
 import uuid
 from pydantic import BaseModel
 from app.agents.seed_generator_agent import SeedGeneratorAgent
+from app.api.deps import get_current_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -27,6 +29,7 @@ async def upload_dataset(
     file: UploadFile = File(...),
     prompt: Optional[str] = Form(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Validate extension
     allowed_extensions = [".csv", ".xlsx", ".xls", ".json", ".parquet"]
@@ -63,6 +66,7 @@ async def upload_dataset(
             prompt=prompt,
             profile_json=profile,
             relationships_json=relationships,
+            user_id=current_user.id,
         )
         db.add(db_dataset)
         db.commit()
@@ -87,6 +91,7 @@ async def generate_from_prompt(
     request: PromptGenerationRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         # 1. Ask LLM to generate a seed CSV
@@ -124,13 +129,14 @@ async def generate_from_prompt(
             prompt=request.prompt,
             profile_json=profile,
             relationships_json=relationships,
+            user_id=current_user.id,
         )
         db.add(db_dataset)
         db.commit()
         db.refresh(db_dataset)
         
         # 5. Automatically enqueue the Generation Job to expand the seed dataset
-        job = Job(dataset_id=db_dataset.id, status="pending", current_step="queued")
+        job = Job(dataset_id=db_dataset.id, status="pending", current_step="queued", user_id=current_user.id)
         db.add(job)
         db.commit()
         db.refresh(job)
@@ -146,22 +152,22 @@ async def generate_from_prompt(
 
 
 @router.get("/", response_model=list[DatasetResponse])
-def get_datasets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    datasets = db.query(Dataset).order_by(Dataset.created_at.desc()).offset(skip).limit(limit).all()
+def get_datasets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    datasets = db.query(Dataset).filter(Dataset.user_id == current_user.id).order_by(Dataset.created_at.desc()).offset(skip).limit(limit).all()
     return datasets
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)
-def get_dataset(dataset_id: int, db: Session = Depends(get_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+def get_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return dataset
 
 
 @router.get("/{dataset_id}/profile")
-def get_dataset_profile(dataset_id: int, db: Session = Depends(get_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+def get_dataset_profile(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     if not dataset.profile_json:
@@ -170,8 +176,8 @@ def get_dataset_profile(dataset_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{dataset_id}/relationships")
-def get_dataset_relationships(dataset_id: int, db: Session = Depends(get_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+def get_dataset_relationships(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     if not dataset.relationships_json:
@@ -184,8 +190,9 @@ def generate_synthetic_data(
     dataset_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -196,7 +203,7 @@ def generate_synthetic_data(
         )
 
     # Create Job
-    job = Job(dataset_id=dataset.id, status="pending", current_step="queued")
+    job = Job(dataset_id=dataset.id, status="pending", current_step="queued", user_id=current_user.id)
     db.add(job)
     db.commit()
     db.refresh(job)

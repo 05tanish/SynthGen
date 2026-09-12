@@ -88,6 +88,34 @@ const JobTracker = () => {
   const isFailed = job.status === 'failed';
   const isRunning = job.status === 'running' || job.status === 'pending';
 
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      const response = await axios.get(`${API_BASE}/jobs/${jobId}/download`, {
+        responseType: 'blob', // Important for file downloads
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'synthetic_dataset.csv';
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) filename = match[1];
+      }
+      
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Failed to download the file. Please try again.');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '800px', margin: '0 auto' }}>
       <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-color)' }}>
@@ -146,15 +174,13 @@ const JobTracker = () => {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <a
-                href={`${API_BASE}/jobs/${jobId}/download`}
-                download
+              <button
+                onClick={handleDownload}
                 className="btn-primary"
-                style={{ textDecoration: 'none' }}
               >
                 <Download size={20} />
                 Download Combined Dataset (Real + Synthetic)
-              </a>
+              </button>
             </div>
           </motion.div>
         )}

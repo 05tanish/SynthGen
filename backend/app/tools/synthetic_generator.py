@@ -48,15 +48,22 @@ def _safe_ctgan_params(n_rows: int, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compute safe CTGAN parameters to avoid the discriminator pac assertion error.
 
-    CTGAN's discriminator asserts: batch_size % pac == 0.
+    CTGAN's discriminator asserts: batch_size % pac == 0, and batch_size % 2 == 0.
     The effective batch the discriminator sees is min(batch_size, n_rows),
-    so we must ensure that value is divisible by pac.
+    so we must ensure that value is divisible by pac, and is even.
     """
     safe = dict(params)
     pac = safe.get("pac", 10)
 
     # Effective batch seen by the discriminator cannot exceed n_rows
     effective_batch = min(safe.get("batch_size", 500), n_rows)
+    
+    # Must be an even number
+    if effective_batch % 2 != 0:
+        effective_batch -= 1
+        
+    if effective_batch <= 0:
+        effective_batch = 2  # Fallback just in case n_rows=1
 
     if effective_batch % pac != 0:
         # Find the largest divisor of effective_batch that is <= pac
@@ -168,9 +175,12 @@ class TVAEGenerator(BaseSyntheticGenerator):
         self.metadata.detect_from_dataframe(data)
         # Drop LLM-hallucinated keys
         safe = _sanitize_params(self.parameters, _TVAE_VALID_PARAMS, "TVAE")
-        # Cap batch_size to n_rows
-        if "batch_size" not in safe:
-            safe["batch_size"] = min(500, len(data))
+        # Cap batch_size to n_rows and make it even
+        batch_size = min(safe.get("batch_size", 500), len(data))
+        if batch_size % 2 != 0:
+            batch_size -= 1
+        safe["batch_size"] = max(2, batch_size)
+        
         self.model = TVAESynthesizer(self.metadata, **safe)
         self.model.fit(data)
 

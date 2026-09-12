@@ -15,6 +15,7 @@ class GenerationPlannerAgent:
         profile_json: dict,
         relationships_json: dict,
         requirement: str = None,
+        requirement_analysis: dict = None,
     ) -> GenerationPlan:
         logger.info("GenerationPlannerAgent generating plan...")
 
@@ -22,6 +23,7 @@ class GenerationPlannerAgent:
         p_str = json.dumps(profile_json)[:2000]
         r_str = json.dumps(relationships_json)[:2000]
         user_prompt_str = requirement or "No specific requirements provided. Use best judgment."
+        req_analysis_str = json.dumps(requirement_analysis) if requirement_analysis else "None"
 
         messages = [
             SystemMessage(content=PLANNER_SYSTEM_PROMPT),
@@ -30,6 +32,7 @@ class GenerationPlannerAgent:
                 profile_json=p_str,
                 relationships_json=r_str,
                 user_prompt=user_prompt_str,
+                requirement_analysis=req_analysis_str,
             ))
         ]
 

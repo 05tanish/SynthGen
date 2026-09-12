@@ -19,9 +19,25 @@ class LLMProvider:
         
     @staticmethod
     def get_structured_llm(schema: Type[BaseModel], temperature: float = 0.0):
-        """Get an LLM bound to output a specific Pydantic schema"""
+        """Get an LLM bound to output a specific Pydantic schema using PydanticOutputParser to bypass Groq tool bugs."""
+        from langchain_core.output_parsers import PydanticOutputParser
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
         llm = LLMProvider.get_llm(temperature)
-        return llm.with_structured_output(schema).with_retry(
+        parser = PydanticOutputParser(pydantic_object=schema)
+        
+        def inject_instructions(input_data):
+            instructions = "You MUST output valid JSON matching the following schema:\\n" + parser.get_format_instructions()
+            sys_msg = SystemMessage(content=instructions)
+            
+            if isinstance(input_data, str):
+                return [sys_msg, HumanMessage(content=input_data)]
+            elif isinstance(input_data, list):
+                return [sys_msg] + input_data
+            return input_data
+
+        chain = inject_instructions | llm | parser
+        return chain.with_retry(
             stop_after_attempt=3, 
             wait_exponential_jitter=True
         )

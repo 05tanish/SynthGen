@@ -45,6 +45,7 @@ def run_generation_job(job_id: int):
         initial_state: GraphState = {
             "dataset_id": dataset.id,
             "requirement": dataset.prompt,  # Pass user's custom prompt to the graph
+            "requirement_analysis": None,
             "real_data_path": source_path,
             "schema_json": dataset.profile_json,   # Profile acts as schema metadata
             "profile_json": dataset.profile_json,

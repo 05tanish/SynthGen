@@ -48,7 +48,7 @@ class SeedGeneratorAgent:
     
     def _clean_csv(self, text: str) -> str:
         # If there are markdown blocks, extract them
-        match = re.search(r'```(?:csv|text)?\n(.*?)\n```', text, re.IGNORECASE | re.DOTALL)
+        match = re.search(r'```(?:csv|text)?\s*\n?(.*?)\n?```', text, re.IGNORECASE | re.DOTALL)
         if match:
             text = match.group(1).strip()
             
@@ -66,7 +66,7 @@ class SeedGeneratorAgent:
         
         # Return everything from start to end (inclusive)
         # Filter out empty lines in between which could break pandas
-        csv_lines = [line for line in lines[start_idx:end_idx+1] if line]
+        csv_lines = [line for line in lines[start_idx:end_idx+1] if line and not line.startswith('```')]
         return '\n'.join(csv_lines).strip()
     
     def generate_seed_csv(self, prompt: str) -> str:
@@ -94,8 +94,11 @@ class SeedGeneratorAgent:
             result = self.csv_llm.invoke(csv_messages)
             content = result.content.strip()
             
+            logger.info(f"Raw LLM Output (Stage 2):\n{content}")
+            
             # Robust CSV extraction to drop conversational text
             cleaned_csv = self._clean_csv(content)
+            logger.info(f"Cleaned CSV (Stage 2):\n{cleaned_csv}")
                 
             return cleaned_csv
         except Exception as e:

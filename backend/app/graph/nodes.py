@@ -3,6 +3,7 @@ import tempfile
 import pandas as pd
 from app.graph.state import GraphState
 from app.agents.generation_planner_agent import GenerationPlannerAgent
+from app.agents.requirement_schema_agent import RequirementSchemaAgent
 from app.agents.optimization_agent import OptimizationAgent
 from app.agents.evaluation_agent import EvaluationAgent
 from app.tools.synthetic_generator import (
@@ -22,6 +23,16 @@ def plan_generation_node(state: GraphState) -> GraphState:
 
     if state.get("generation_plan"):
         return state  # already planned
+        
+    req = state.get("requirement")
+    if req and req.strip() and not state.get("requirement_analysis"):
+        logger.info("Extracting NLP constraints from requirement prompt...")
+        try:
+            req_agent = RequirementSchemaAgent()
+            analysis = req_agent.analyze_requirement(req)
+            state["requirement_analysis"] = analysis.model_dump()
+        except Exception as e:
+            logger.warning(f"Failed to extract NLP requirements: {e}. Proceeding without structured requirements.")
 
     planner = GenerationPlannerAgent()
     plan = planner.plan(
@@ -29,6 +40,7 @@ def plan_generation_node(state: GraphState) -> GraphState:
         profile_json=state.get("profile_json") or {},
         relationships_json=state.get("relationships_json") or {},
         requirement=state.get("requirement"),  # Pass user's custom prompt
+        requirement_analysis=state.get("requirement_analysis"), # Pass extracted NLP constraints
     )
 
     state["generation_plan"] = plan.model_dump()

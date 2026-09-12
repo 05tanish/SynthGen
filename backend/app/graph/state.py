@@ -10,6 +10,7 @@ class GraphState(TypedDict):
     # Inputs
     dataset_id: int
     requirement: Optional[str]
+    requirement_analysis: Optional[Dict[str, Any]]
 
     # File paths (serializable)
     real_data_path: str  # Absolute path to the source CSV/file on disk

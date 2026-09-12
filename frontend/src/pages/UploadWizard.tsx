@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UploadCloud, ArrowRight, Loader, FileText, X } from 'lucide-react';
+import { UploadCloud, ArrowRight, Loader, FileText, X, Database, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { API_BASE } from '../lib/api';
 
 const UploadWizard = () => {
+  const [mode, setMode] = useState<'dataset' | 'prompt'>('dataset');
   const [file, setFile] = useState<File | null>(null);
   const [prompt, setPrompt] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -28,8 +29,12 @@ const UploadWizard = () => {
   };
 
   const handleUpload = async () => {
-    if (!file && !prompt.trim()) {
-      setError('Please either upload a seed file or provide a generation prompt.');
+    if (mode === 'dataset' && !file) {
+      setError('Please upload a source dataset.');
+      return;
+    }
+    if (mode === 'prompt' && !prompt.trim()) {
+      setError('Please provide a generation prompt.');
       return;
     }
 
@@ -39,7 +44,7 @@ const UploadWizard = () => {
     try {
       let jobId;
 
-      if (file) {
+      if (mode === 'dataset' && file) {
         // Path A: Upload File (with optional prompt)
         const formData = new FormData();
         formData.append('file', file);
@@ -84,64 +89,119 @@ const UploadWizard = () => {
       className="glass-panel"
       style={{ maxWidth: '640px', margin: '2rem auto' }}
     >
-      <h2 style={{ textAlign: 'center', marginBottom: '2rem' }}>Configure Generation</h2>
+      <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>Configure Generation</h2>
+      <p style={{ textAlign: 'center', color: 'var(--text-color)', marginBottom: '2rem', fontSize: '0.95rem' }}>
+        How would you like to generate your synthetic data?
+      </p>
+
+      {/* Mode Selector */}
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+        <button
+          onClick={() => { setMode('dataset'); setError(''); }}
+          style={{
+            flex: 1,
+            padding: '1.25rem',
+            borderRadius: '12px',
+            border: `2px solid ${mode === 'dataset' ? 'var(--primary-color)' : 'var(--glass-border)'}`,
+            background: mode === 'dataset' ? 'rgba(102, 252, 241, 0.1)' : 'transparent',
+            color: mode === 'dataset' ? 'var(--primary-color)' : 'var(--text-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Database size={28} />
+          <span style={{ fontWeight: 600 }}>Enhance Dataset</span>
+          <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>Upload CSV/JSON</span>
+        </button>
+        <button
+          onClick={() => { setMode('prompt'); setError(''); }}
+          style={{
+            flex: 1,
+            padding: '1.25rem',
+            borderRadius: '12px',
+            border: `2px solid ${mode === 'prompt' ? 'var(--primary-color)' : 'var(--glass-border)'}`,
+            background: mode === 'prompt' ? 'rgba(102, 252, 241, 0.1)' : 'transparent',
+            color: mode === 'prompt' ? 'var(--primary-color)' : 'var(--text-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Sparkles size={28} />
+          <span style={{ fontWeight: 600 }}>From Scratch</span>
+          <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>Prompt Only</span>
+        </button>
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        {/* File Drop Zone */}
-        <div
-          onDrop={handleDrop}
-          onDragOver={(e) => e.preventDefault()}
-          style={{
-            border: `2px dashed ${file ? 'var(--primary-color)' : 'var(--glass-border)'}`,
-            borderRadius: '12px',
-            padding: '3rem',
-            textAlign: 'center',
-            transition: 'border-color 0.3s ease',
-            backgroundColor: file ? 'rgba(102, 252, 241, 0.05)' : 'transparent',
-            cursor: 'pointer',
-          }}
-          onClick={() => document.getElementById('file-upload')?.click()}
-        >
-          <UploadCloud size={48} color="var(--primary-color)" style={{ marginBottom: '1rem' }} />
-          <h3>Upload Source Dataset (Optional)</h3>
-          <p style={{ color: 'var(--text-color)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-            Leave blank if you want the AI to generate data purely from your prompt below.
-          </p>
+        {/* File Drop Zone (Only for dataset mode) */}
+        {mode === 'dataset' && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            style={{
+              border: `2px dashed ${file ? 'var(--primary-color)' : 'var(--glass-border)'}`,
+              borderRadius: '12px',
+              padding: '2.5rem',
+              textAlign: 'center',
+              transition: 'border-color 0.3s ease',
+              backgroundColor: file ? 'rgba(102, 252, 241, 0.05)' : 'transparent',
+              cursor: 'pointer',
+            }}
+            onClick={() => document.getElementById('file-upload')?.click()}
+          >
+            <UploadCloud size={40} color="var(--primary-color)" style={{ marginBottom: '1rem' }} />
+            <h3 style={{ marginBottom: '0.5rem' }}>Upload Source Dataset (Required)</h3>
+            <p style={{ color: 'var(--text-color)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+              Drag and drop your file here, or click to browse.
+            </p>
 
-          <input
-            type="file"
-            id="file-upload"
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-            accept=".csv,.xlsx,.parquet,.json"
-          />
+            <input
+              type="file"
+              id="file-upload"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+              accept=".csv,.xlsx,.parquet,.json"
+            />
 
-          {file ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--primary-color)' }}>
-              <FileText size={18} />
-              <span style={{ fontWeight: 600 }}>{file.name}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); setFile(null); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger-color)', display: 'flex' }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          ) : (
-            <span className="btn-secondary" style={{ cursor: 'pointer' }}>Select File</span>
-          )}
-        </div>
+            {file ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--primary-color)' }}>
+                <FileText size={18} />
+                <span style={{ fontWeight: 600 }}>{file.name}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger-color)', display: 'flex' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <span className="btn-secondary" style={{ cursor: 'pointer' }}>Select File</span>
+            )}
+          </div>
+        )}
 
         {/* Custom Prompt */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <label htmlFor="prompt" style={{ fontWeight: 600 }}>
-            Generation Prompt <span style={{ color: 'var(--text-color)', fontWeight: 400 }}>(Required if no file uploaded)</span>
+            {mode === 'prompt' ? 'Generation Prompt (Required)' : 'Generation Prompt (Optional)'}
           </label>
           <textarea
             id="prompt"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="E.g., Generate realistic PII data with US formats, a 50/50 gender ratio, and some null values in the middle_name column."
+            placeholder={
+              mode === 'prompt' 
+              ? "E.g., Generate realistic PII data with US formats, a 50/50 gender ratio, and some null values in the middle_name column."
+              : "E.g., Preserve the original data distribution, but anonymize all PII columns."
+            }
             style={{
               padding: '1rem',
               borderRadius: '8px',
@@ -167,7 +227,11 @@ const UploadWizard = () => {
           className="btn-primary"
           style={{ justifyContent: 'center', padding: '1rem' }}
           onClick={handleUpload}
-          disabled={(!file && !prompt.trim()) || isUploading}
+          disabled={
+            (mode === 'dataset' && !file) || 
+            (mode === 'prompt' && !prompt.trim()) || 
+            isUploading
+          }
         >
           {isUploading ? (
             <><Loader className="spin" size={20} /> Initializing Pipeline...</>

@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.job import Job
+from app.models.user import User
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
 @router.get("/{job_id}")
-def get_job_status(job_id: int, db: Session = Depends(get_db)):
-    job = db.query(Job).filter(Job.id == job_id).first()
+def get_job_status(job_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
         
@@ -26,8 +28,8 @@ from fastapi.responses import FileResponse
 import os
 
 @router.get("/{job_id}/download")
-def download_synthetic_data(job_id: int, db: Session = Depends(get_db)):
-    job = db.query(Job).filter(Job.id == job_id).first()
+def download_synthetic_data(job_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
         
