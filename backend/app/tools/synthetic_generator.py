@@ -110,9 +110,13 @@ def parse_row_count_from_prompt(requirement: Optional[str]) -> Optional[int]:
         match = re.search(pattern, text)
         if match:
             count = int(match.group(1))
-            if 1 <= count <= 1_000_000:   # sanity bounds
+            # Enforce system limit of 30,000 rows
+            if 1 <= count <= 30_000:
                 logger.info(f"Parsed row_count={count} from user prompt.")
                 return count
+            elif count > 30_000:
+                logger.warning(f"User requested {count} rows, but system limit is 30,000. Capping to 30,000.")
+                return 30_000
     return None
 
 
