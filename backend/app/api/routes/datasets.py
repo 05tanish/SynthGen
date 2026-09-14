@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Backgro
 from fastapi.concurrency import run_in_threadpool
 from typing import Optional
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 from app.db.database import get_db
 from app.models.dataset import Dataset
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.schemas.dataset import DatasetResponse, DatasetCreate
 from app.tools.data_loader import load_from_file
 from app.tools.dataset_profiler import profile_dataset
@@ -14,10 +15,10 @@ from app.workers.graph_worker import run_generation_job
 import shutil
 import os
 import uuid
-from pydantic import BaseModel
 from app.agents.seed_generator_agent import SeedGeneratorAgent
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.core.logging import logger
 
 router = APIRouter()
 
@@ -27,10 +28,14 @@ os.makedirs(os.path.join(settings.FILE_STORAGE_PATH, "uploads"), exist_ok=True)
 @router.post("/upload", response_model=DatasetResponse)
 async def upload_dataset(
     file: UploadFile = File(...),
-    prompt: Optional[str] = Form(None),
+    prompt: Optional[str] = Form(None, max_length=2000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Validate prompt length if provided
+    if prompt and len(prompt) > 2000:
+        raise HTTPException(status_code=400, detail="Prompt exceeds 2,000 character limit")
+    
     # Validate extension
     allowed_extensions = [".csv", ".xlsx", ".xls", ".json", ".parquet"]
     ext = os.path.splitext(file.filename)[1].lower()
@@ -54,14 +59,55 @@ async def upload_dataset(
 
         # Run heavy CPU-bound profiling in a thread pool to avoid blocking the event loop
         loaded_data = await run_in_threadpool(load_from_file, file_path)
+        
+        # Validate row count (must be between 8 and 30,000)
+        if loaded_data.row_count < 8:
+            os.remove(file_path)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dataset has only {loaded_data.row_count} rows. Minimum 8 rows required for reliable synthetic generation."
+            )
+        
+        if loaded_data.row_count > 30000:
+            os.remove(file_path)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dataset has {loaded_data.row_count} rows. Maximum 30,000 rows allowed."
+            )
+        
+        # Validate column count (max 100 columns)
+        if loaded_data.column_count > 100:
+            os.remove(file_path)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dataset has {loaded_data.column_count} columns. Maximum 100 columns allowed."
+            )
+        
         profile = await run_in_threadpool(profile_dataset, loaded_data.dataframe)
         relationships = await run_in_threadpool(analyze_relationships, loaded_data.dataframe)
+        
+        # Truncate JSON data to fit within limits (agents will re-truncate as needed)
+        from app.schemas.dataset import truncate_json_data
+        profile = truncate_json_data(profile, 1000, "Profile")
+        relationships = truncate_json_data(relationships, 1000, "Relationships")
+
+        # Parse desired row count from prompt, or default to uploaded file's row count
+        from app.tools.synthetic_generator import parse_row_count_from_prompt
+        desired_row_count = parse_row_count_from_prompt(prompt) if prompt else None
+        
+        # If user specified a row count in the prompt, use it; otherwise use the uploaded file's row count
+        final_row_count = desired_row_count if desired_row_count else loaded_data.row_count
+        
+        # Validate the final row count is within limits
+        if final_row_count > 30000:
+            logger.warning(f"Requested row count {final_row_count} exceeds limit. Capping to 30,000.")
+            final_row_count = 30000
 
         db_dataset = Dataset(
             name=file.filename,
             source_type="upload",
             source_filename=file_path,
-            row_count=loaded_data.row_count,
+            row_count=final_row_count,  # Store the desired row count, not the uploaded file's count
             column_count=loaded_data.column_count,
             prompt=prompt,
             profile_json=profile,
@@ -79,11 +125,14 @@ async def upload_dataset(
     except Exception as e:
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise HTTPException(status_code=500, detail=str(e))
+        from app.core.error_sanitiser import raise_safe_http_error
+        raise_safe_http_error(e, status_code=500, context="upload_dataset")
 
 
 class PromptGenerationRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(max_length=2000, description="User prompt (max 2,000 chars)")
+    row_count: int = Field(default=1000, ge=1, le=30000, description="Number of rows to generate (max 30,000)")
+    format: str = "CSV"    # Output format (future use)
 
 
 @router.post("/generate-from-prompt")
@@ -94,6 +143,13 @@ async def generate_from_prompt(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        # Validate request (Pydantic will auto-validate, but we add extra checks)
+        if request.row_count > 30000:
+            raise HTTPException(
+                status_code=400,
+                detail="Row count exceeds maximum limit of 30,000 rows"
+            )
+        
         # 1. Ask LLM to generate a seed CSV
         agent = SeedGeneratorAgent()
         seed_csv_str = await run_in_threadpool(agent.generate_seed_csv, request.prompt)
@@ -110,23 +166,47 @@ async def generate_from_prompt(
         # 3. Process it just like a normal upload
         loaded_data = await run_in_threadpool(load_from_file, file_path)
         
-        if loaded_data.row_count == 0:
+        # Validate seed dataset has minimum viable rows
+        if loaded_data.row_count < 8:
+            if os.path.exists(file_path):
+                os.remove(file_path)
             raise HTTPException(
                 status_code=400, 
-                detail="The AI failed to generate a valid seed dataset (often caused by safety refusals or overly complex prompts). Please rephrase your prompt and try again."
+                detail=f"The AI generated only {loaded_data.row_count} seed rows. Minimum 8 rows required. This often happens with overly complex or safety-sensitive prompts. Please simplify your prompt and try again."
+            )
+        
+        # Validate column count
+        if loaded_data.column_count > 100:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Generated dataset has {loaded_data.column_count} columns. Maximum 100 columns allowed. Please simplify your prompt."
             )
             
         profile = await run_in_threadpool(profile_dataset, loaded_data.dataframe)
         relationships = await run_in_threadpool(analyze_relationships, loaded_data.dataframe)
         
-        # 4. Save to DB
+        # Truncate JSON data to fit within limits
+        from app.schemas.dataset import truncate_json_data
+        profile = truncate_json_data(profile, 1000, "Profile")
+        relationships = truncate_json_data(relationships, 1000, "Relationships")
+        
+        # 4. Save to DB — embed row_count in prompt so graph_worker can parse it
+        # We prefix the prompt with the row count instruction for reliable parsing
+        enriched_prompt = f"Generate exactly {request.row_count} rows. {request.prompt}"
+        
+        # Ensure enriched prompt doesn't exceed limit
+        if len(enriched_prompt) > 2000:
+            enriched_prompt = enriched_prompt[:2000]
+        
         db_dataset = Dataset(
-            name=f"Generated: {request.prompt[:20]}...",
+            name=f"Generated: {request.prompt[:40]}...",
             source_type="prompt",
             source_filename=file_path,
-            row_count=loaded_data.row_count,
+            row_count=request.row_count,  # requested rows (not seed rows)
             column_count=loaded_data.column_count,
-            prompt=request.prompt,
+            prompt=enriched_prompt,
             profile_json=profile,
             relationships_json=relationships,
             user_id=current_user.id,
@@ -136,25 +216,53 @@ async def generate_from_prompt(
         db.refresh(db_dataset)
         
         # 5. Automatically enqueue the Generation Job to expand the seed dataset
-        job = Job(dataset_id=db_dataset.id, status="pending", current_step="queued", user_id=current_user.id)
+        job = Job(dataset_id=db_dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
         db.add(job)
         db.commit()
         db.refresh(job)
         
         background_tasks.add_task(run_generation_job, job.id)
         
-        return {"message": "Generation job started", "job_id": job.id, "dataset": db_dataset}
+        return {"message": "Generation job started", "job_id": job.id, "dataset_id": db_dataset.id}
+
         
     except HTTPException:
         raise
+    except ValueError as e:
+        # ValueError from seed generator carries a safe user-facing message
+        logger.error(f"Seed generation ValueError: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate seed data: {e}")
+        from app.core.error_sanitiser import raise_safe_http_error
+        raise_safe_http_error(e, status_code=500, context="generate_from_prompt")
 
 
 @router.get("/", response_model=list[DatasetResponse])
 def get_datasets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    datasets = db.query(Dataset).filter(Dataset.user_id == current_user.id).order_by(Dataset.created_at.desc()).offset(skip).limit(limit).all()
-    return datasets
+    try:
+        logger.info(f"Fetching datasets for user {current_user.id}")
+        datasets = db.query(Dataset).filter(Dataset.user_id == current_user.id).order_by(Dataset.created_at.desc()).offset(skip).limit(limit).all()
+        logger.info(f"Found {len(datasets)} datasets for user {current_user.id}")
+        
+        # Convert to response format explicitly to catch any serialization issues
+        result = []
+        for dataset in datasets:
+            try:
+                result.append(DatasetResponse.model_validate(dataset))
+            except Exception as e:
+                logger.error(f"Failed to serialize dataset {dataset.id}: {e}")
+                # Skip this dataset but continue with others
+                continue
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching datasets for user {current_user.id}: {e}", exc_info=True)
+        # Return empty list instead of raising error if it's just a query issue
+        if "no such table" in str(e).lower() or "database" in str(e).lower():
+            logger.warning("Database table not found or not initialized. Returning empty list.")
+            return []
+        from app.core.error_sanitiser import raise_safe_http_error
+        raise_safe_http_error(e, status_code=500, context="get_datasets")
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)
@@ -203,7 +311,7 @@ def generate_synthetic_data(
         )
 
     # Create Job
-    job = Job(dataset_id=dataset.id, status="pending", current_step="queued", user_id=current_user.id)
+    job = Job(dataset_id=dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -212,3 +320,36 @@ def generate_synthetic_data(
     background_tasks.add_task(run_generation_job, job.id)
 
     return {"message": "Generation job started", "job_id": job.id}
+
+@router.delete("/{dataset_id}")
+def delete_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    # Check if there are any running jobs for this dataset
+    running_jobs = db.query(Job).filter(
+        Job.dataset_id == dataset.id,
+        Job.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+    ).count()
+    
+    if running_jobs > 0:
+        raise HTTPException(
+            status_code=409, 
+            detail="Cannot delete dataset with active jobs. Please wait for jobs to complete or cancel them first."
+        )
+    
+    # Delete all associated jobs first
+    db.query(Job).filter(Job.dataset_id == dataset.id).delete()
+    
+    # Delete source file if it exists
+    if dataset.source_filename and os.path.exists(dataset.source_filename):
+        try:
+            os.remove(dataset.source_filename)
+        except Exception as e:
+            logger.warning(f"Failed to delete source file {dataset.source_filename}: {e}")
+    
+    db.delete(dataset)
+    db.commit()
+    
+    return {"status": "deleted"}

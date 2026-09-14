@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.api.deps import get_current_user
 
@@ -33,15 +33,46 @@ def download_synthetic_data(job_id: int, db: Session = Depends(get_db), current_
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
         
-    if job.status != "completed" or not job.synthetic_file_path:
+    if job.status != JobStatus.COMPLETED or not job.synthetic_file_path:
         raise HTTPException(status_code=400, detail="Data is not ready or failed to generate")
         
     if not os.path.exists(job.synthetic_file_path):
         raise HTTPException(status_code=404, detail="Synthetic file not found on disk")
         
     filename = os.path.basename(job.synthetic_file_path)
+    # Use a friendly download filename
+    from app.models.dataset import Dataset
+    dataset = db.query(Dataset).filter(Dataset.id == job.dataset_id).first()
+    friendly_name = (dataset.name or "dataset").replace(" ", "_")[:40] if dataset else "dataset"
+    from datetime import date
+    download_name = f"{friendly_name}_{date.today().isoformat()}.csv"
+
     return FileResponse(
-        path=job.synthetic_file_path, 
-        filename=filename,
+        path=job.synthetic_file_path,
+        filename=download_name,
         media_type='text/csv'
     )
+
+
+@router.get("/by-dataset/{dataset_id}")
+def get_job_by_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get the latest job for a given dataset. Used by History and Dataset detail pages."""
+    from sqlalchemy import desc
+    job = (
+        db.query(Job)
+        .filter(Job.dataset_id == dataset_id, Job.user_id == current_user.id)
+        .order_by(desc(Job.created_at))
+        .first()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="No job found for this dataset")
+    return {
+        "id": job.id,
+        "dataset_id": job.dataset_id,
+        "status": job.status,
+        "current_step": job.current_step,
+        "error_message": job.error_message,
+        "evaluation_report": job.evaluation_report_json,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
