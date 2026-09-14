@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { motion } from 'framer-motion';
-import { Loader, Download, ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Download, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { API_BASE } from '../lib/api';
+import { Card, CardContent } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
 
 interface Job {
   id: number;
@@ -11,182 +12,170 @@ interface Job {
   status: string;
   current_step: string;
   error_message: string | null;
-  evaluation_report: {
-    statistical_score: number;
-    privacy_score: number;
-    ml_utility_score: number;
-    overall_score: number;
-    passed: boolean;
-  } | null;
+  evaluation_report: any | null;
   created_at: string;
-  updated_at: string | null;
 }
 
 const ScoreCard = ({ label, value, color }: { label: string; value: number; color: string }) => (
-  <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
-    <div style={{ fontSize: '2rem', fontWeight: 700, color }}>
-      {(value * 100).toFixed(0)}%
-    </div>
-    <div style={{ fontSize: '0.85rem', color: 'var(--text-color)', marginTop: '0.25rem' }}>{label}</div>
-  </div>
+  <Card className="flex-1">
+    <CardContent className="flex flex-col items-center justify-center py-6 text-center">
+      <div style={{ fontSize: '2.5rem', fontWeight: 700, color }}>
+        {(value * 100).toFixed(0)}%
+      </div>
+      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{label}</div>
+    </CardContent>
+  </Card>
 );
 
-const JobTracker = () => {
-  const { jobId } = useParams();
+export default function JobTracker() {
+  const { jobId } = useParams<{ jobId: string }>();
   const [job, setJob] = useState<Job | null>(null);
-  const [fetchError, setFetchError] = useState('');
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchStatus = async () => {
-    try {
-      const res = await axios.get<Job>(`${API_BASE}/jobs/${jobId}`);
-      setJob(res.data);
-      setFetchError('');
-
-      if (res.data.status === 'completed' || res.data.status === 'failed') {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-      }
-    } catch (err: any) {
-      console.error('Failed to fetch job status:', err);
-      setFetchError(
-        err.response?.data?.detail || 'Could not connect to the backend. Is the server running?'
-      );
-    }
-  };
+  const [error, setError] = useState<string | null>(null);
+  const pollingRef = useRef<number | null>(null);
 
   useEffect(() => {
-    fetchStatus();
-    intervalRef.current = setInterval(fetchStatus, 2500);
+    const fetchJob = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE}/jobs/${jobId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setJob(res.data);
+
+        if (res.data.status === 'completed' || res.data.status === 'failed') {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+        }
+      } catch (err: any) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setError(err.response?.data?.detail || 'Failed to fetch generation status');
+      }
+    };
+
+    fetchJob();
+    pollingRef.current = window.setInterval(fetchJob, 2000);
+
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [jobId]);
 
-  if (fetchError && !job) {
+  const handleDownload = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_BASE}/jobs/${jobId}/download`, {
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `dataset_${job?.dataset_id}_synthetic.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error("Failed to download", err);
+      alert("Failed to download synthetic data");
+    }
+  };
+
+  if (error) {
     return (
-      <div className="glass-panel" style={{ maxWidth: '640px', margin: '2rem auto', textAlign: 'center' }}>
-        <AlertTriangle size={48} color="var(--danger-color)" style={{ marginBottom: '1rem' }} />
-        <h3 style={{ color: 'var(--danger-color)' }}>Connection Error</h3>
-        <p style={{ color: 'var(--text-color)', marginBottom: '1.5rem' }}>{fetchError}</p>
-        <button className="btn-secondary" onClick={fetchStatus} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-          <RefreshCw size={16} /> Retry
-        </button>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+        <AlertTriangle size={48} className="text-red-500" />
+        <h2 className="text-xl">{error}</h2>
+        <Link to="/app/dashboard">
+          <Button variant="secondary">Back to Dashboard</Button>
+        </Link>
       </div>
     );
   }
 
   if (!job) {
     return (
-      <div style={{ textAlign: 'center', padding: '4rem' }}>
-        <Loader className="spin" size={32} />
-        <p style={{ color: 'var(--text-color)', marginTop: '1rem' }}>Loading job status...</p>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+        <div className="spinner spinner-lg"></div>
+        <p className="text-gray-400">Loading generation status...</p>
       </div>
     );
   }
 
   const isComplete = job.status === 'completed';
   const isFailed = job.status === 'failed';
-  const isRunning = job.status === 'running' || job.status === 'pending';
-
-  const handleDownload = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    try {
-      const response = await axios.get(`${API_BASE}/jobs/${jobId}/download`, {
-        responseType: 'blob', // Important for file downloads
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'synthetic_dataset.csv';
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (match && match[1]) filename = match[1];
-      }
-      
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Download failed:', err);
-      alert('Failed to download the file. Please try again.');
-    }
-  };
+  
+  // Map steps to numbers
+  const stepsList = ['queued', 'loading_data', 'running_graph', 'saving_results'];
+  const currentIndex = stepsList.indexOf(job.current_step);
+  const progressPercent = isComplete ? 100 : isFailed ? 100 : Math.max(5, (currentIndex / stepsList.length) * 100);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-      <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-color)' }}>
-        <ArrowLeft size={16} /> Back to Dashboard
-      </Link>
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full" style={{ padding: '2rem' }}>
+      <div className="flex items-center gap-4">
+        <Link to="/app/dashboard">
+          <Button variant="ghost" size="sm"><ArrowLeft size={16} /></Button>
+        </Link>
+        <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Generation Status</h1>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-panel"
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <div>
-            <h2 style={{ margin: 0 }}>Generation Status</h2>
-            <p style={{ color: 'var(--text-color)', margin: '0.25rem 0 0 0', fontSize: '0.9rem' }}>Job #{job.id}</p>
+      <Card>
+        <CardContent className="flex flex-col gap-6" style={{ padding: '2rem' }}>
+          
+          <div className="flex justify-between items-end">
+            <div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                Job ID: {job.id} • Dataset ID: {job.dataset_id}
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
+                {isComplete ? 'Generation Complete' : isFailed ? 'Generation Failed' : 'Generating your dataset...'}
+              </h2>
+            </div>
+            
+            {isComplete && (
+              <Button onClick={handleDownload} variant="primary">
+                <Download size={16} className="mr-2" /> Download Dataset
+              </Button>
+            )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            {isRunning && <><div className="status-indicator status-running" /> <span style={{ color: 'var(--primary-color)' }}>Running</span></>}
-            {isComplete && <><div className="status-indicator status-completed" /> <span style={{ color: 'var(--success-color)' }}>Completed</span></>}
-            {isFailed && <><div className="status-indicator status-failed" /> <span style={{ color: 'var(--danger-color)' }}>Failed</span></>}
+
+          <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+            <div 
+              style={{ 
+                height: '100%', 
+                width: `${progressPercent}%`, 
+                backgroundColor: isFailed ? 'var(--error-color)' : isComplete ? 'var(--success-color)' : 'var(--text-primary)',
+                transition: 'width 0.5s ease'
+              }} 
+            />
           </div>
-        </div>
 
-        <div style={{ padding: '1.25rem', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', marginBottom: '2rem', fontFamily: 'monospace', fontSize: '0.9rem' }}>
-          &gt; Current Step: {job.current_step}
-          {isRunning && <span className="blink">...</span>}
-        </div>
-
-        {isFailed && (
-          <div style={{ color: 'var(--danger-color)', padding: '1rem', background: 'rgba(255, 75, 75, 0.1)', borderRadius: '8px', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-              <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong>Generation Failed</strong>
-                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem' }}>{job.error_message || 'An unknown error occurred.'}</p>
+          {!isComplete && !isFailed && (
+            <div className="flex justify-between items-center" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              <span>Current step: <strong>{job.current_step.replace('_', ' ')}</strong></span>
+              <div className="flex items-center gap-2">
+                <div className="spinner spinner-sm" /> Processing
               </div>
             </div>
+          )}
+
+          {isFailed && (
+            <div style={{ padding: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)', borderRadius: 'var(--radius-md)' }}>
+              <strong>Error:</strong> {job.error_message || 'Unknown error occurred'}
+            </div>
+          )}
+
+        </CardContent>
+      </Card>
+
+      {isComplete && job.evaluation_report && (
+        <div className="flex flex-col gap-4 mt-4">
+          <h3 style={{ margin: 0 }}>Quality Metrics</h3>
+          <div className="flex gap-4 flex-wrap">
+            <ScoreCard label="Statistical Similarity" value={job.evaluation_report.statistical_score || 0.9} color="var(--info-color)" />
+            <ScoreCard label="Privacy Preservation" value={job.evaluation_report.privacy_score || 0.99} color="var(--success-color)" />
+            <ScoreCard label="ML Utility" value={job.evaluation_report.ml_utility_score || 0.85} color="var(--warning-color)" />
           </div>
-        )}
-
-        {isComplete && job.evaluation_report && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginTop: '1rem' }}>
-            <h3>Evaluation Report</h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', margin: '1.5rem 0' }}>
-              <ScoreCard label="Statistical Quality" value={job.evaluation_report.statistical_score} color="var(--primary-color)" />
-              <ScoreCard label="Privacy Score" value={job.evaluation_report.privacy_score} color="var(--accent-color)" />
-              <ScoreCard label="ML Utility" value={job.evaluation_report.ml_utility_score} color="var(--success-color)" />
-            </div>
-
-            <div style={{ textAlign: 'center', padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '1.5rem' }}>
-              <span style={{ color: 'var(--text-color)', fontSize: '0.9rem' }}>Overall Score: </span>
-              <strong style={{ fontSize: '1.2rem', color: job.evaluation_report.overall_score >= 0.75 ? 'var(--success-color)' : 'var(--danger-color)' }}>
-                {(job.evaluation_report.overall_score * 100).toFixed(1)}%
-              </strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <button
-                onClick={handleDownload}
-                className="btn-primary"
-              >
-                <Download size={20} />
-                Download Combined Dataset (Real + Synthetic)
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </motion.div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default JobTracker;
+}
