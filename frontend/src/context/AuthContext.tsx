@@ -5,6 +5,7 @@ import { API_BASE } from '../lib/api';
 interface User {
   id: number;
   email: string;
+  name?: string;
   is_verified: boolean;
 }
 

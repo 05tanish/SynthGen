@@ -1,114 +1,157 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
-import { motion } from 'framer-motion';
-import { Lock, Mail, ArrowRight, Loader } from 'lucide-react';
+import { Brain, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Card, CardContent } from '../components/ui/Card';
+import axios from 'axios';
 import { API_BASE } from '../lib/api';
 
-const Login = () => {
+const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
-  const { login } = useAuth();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
     try {
       const formData = new URLSearchParams();
-      formData.append('username', email);
+      formData.append('username', email.trim());
       formData.append('password', password);
 
       const res = await axios.post(`${API_BASE}/v1/auth/login`, formData, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
-
       login(res.data.access_token);
-      navigate('/');
+      navigate('/app/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
+      const detail = err.response?.data?.detail;
+      if (detail?.includes('verify')) {
+        setError('Please verify your email before logging in. Check your inbox for the code.');
+      } else {
+        setError(detail || 'Incorrect email or password. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-panel"
-      style={{ maxWidth: '400px', margin: '4rem auto', padding: '2.5rem' }}
-    >
-      <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Welcome Back</h2>
-      <p style={{ textAlign: 'center', color: 'var(--text-color)', marginBottom: '2rem', fontSize: '0.9rem' }}>
-        Log in to manage your synthetic datasets
-      </p>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      backgroundColor: 'var(--bg-primary)',
+      padding: '1rem',
+    }}>
+      {/* Logo */}
+      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem', textDecoration: 'none' }}>
+        <Brain size={28} color="var(--text-primary)" />
+        <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Synthetix</span>
+      </Link>
 
-      <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div style={{ position: 'relative' }}>
-          <Mail size={20} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-color)', opacity: 0.7 }} />
-          <input
-            type="email"
-            placeholder="Email Address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{
-              width: '100%',
-              padding: '12px 12px 12px 40px',
-              borderRadius: '8px',
-              border: '1px solid var(--glass-border)',
-              background: 'rgba(255, 255, 255, 0.05)',
-              color: '#fff',
-              fontSize: '1rem',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        <div style={{ position: 'relative' }}>
-          <Lock size={20} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-color)', opacity: 0.7 }} />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{
-              width: '100%',
-              padding: '12px 12px 12px 40px',
-              borderRadius: '8px',
-              border: '1px solid var(--glass-border)',
-              background: 'rgba(255, 255, 255, 0.05)',
-              color: '#fff',
-              fontSize: '1rem',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        {error && (
-          <div style={{ color: 'var(--danger-color)', fontSize: '0.85rem', textAlign: 'center' }}>
-            {error}
+      <Card style={{ width: '100%', maxWidth: '400px' }}>
+        <CardContent style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ textAlign: 'center' }}>
+            <h2 style={{ fontSize: '1.375rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+              Welcome back
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              Sign in to your account
+            </p>
           </div>
-        )}
 
-        <button type="submit" className="btn-primary" disabled={isLoading} style={{ width: '100%', justifyContent: 'center' }}>
-          {isLoading ? <Loader className="spin" size={20} /> : <>Log In <ArrowRight size={20} /></>}
-        </button>
-      </form>
+          {error && (
+            <div style={{
+              padding: '0.75rem 1rem',
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              color: 'var(--error-color)',
+              fontSize: '0.875rem',
+              borderRadius: 'var(--radius-md)',
+              lineHeight: 1.5,
+            }}>
+              {error}
+            </div>
+          )}
 
-      <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.9rem', color: 'var(--text-color)' }}>
-        Don't have an account? <Link to="/register" style={{ color: 'var(--primary-color)', textDecoration: 'none', fontWeight: 600 }}>Sign up</Link>
-      </p>
-    </motion.div>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <Input
+              label="Email address"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@company.com"
+              required
+              autoComplete="email"
+            />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label className="input-label">Password</label>
+                <Link to="/forgot-password" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Forgot password?
+                </Link>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="input-control"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                  style={{ paddingRight: '2.75rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: '0.75rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: 0,
+                  }}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <Button type="submit" isLoading={isLoading} style={{ marginTop: '0.5rem', width: '100%' }}>
+              Sign In
+            </Button>
+          </form>
+
+          <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            Don't have an account?{' '}
+            <Link to="/register" style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+              Create account
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
