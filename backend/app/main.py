@@ -62,7 +62,14 @@ from app.models.job import Job
 from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.template import Template
-Base.metadata.create_all(bind=engine)
+
+@app.on_event("startup")
+def startup_db():
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn.error").warning(f"Database table initialization warning: {e}")
 
 # ─── COOP Middleware ──────────────────────────────────────────────────────────
 # Google Sign-In popup uses postMessage to communicate with the opener window.

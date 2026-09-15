@@ -5,15 +5,15 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Agentic AI Synthetic Data Generator"
     
     # DB
-    DATABASE_URL: str
+    DATABASE_URL: str = "sqlite:///./app.db"
     
     # Redis
-    UPSTASH_REDIS_URL: str
+    UPSTASH_REDIS_URL: str = ""
     UPSTASH_REDIS_TOKEN: Optional[str] = None  # Not needed for local Redis
     
     # LLM
     LLM_PROVIDER: str = "groq"
-    LLM_API_KEY: str
+    LLM_API_KEY: str = ""
     LLM_MODEL: str = "openai/gpt-oss-20b"
     
     # Generator Settings
@@ -37,6 +37,6 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = "placeholder_google_client_id"
     FRONTEND_URL: Optional[str] = None
 
-    model_config = SettingsConfigDict(env_file="../.env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()
