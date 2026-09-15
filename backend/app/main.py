@@ -35,6 +35,27 @@ async def global_exception_handler(request: Request, exc: Exception):
         headers=_get_cors_headers(request),
     )
 
+# ─── Explicit OPTIONS handler — belt-and-suspenders CORS preflight ─────────────
+# Some hosting platforms (Railway, Render) return their own 502/503 error pages
+# before the CORS middleware can add headers. This handler guarantees preflight
+# OPTIONS requests always get a proper 200 with CORS headers.
+from fastapi import Response as FastAPIResponse
+from fastapi.routing import APIRoute
+
+@app.options("/{full_path:path}")
+async def handle_preflight(request: Request, full_path: str):
+    origin = request.headers.get("origin", "*")
+    return FastAPIResponse(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
+
 from app.db.database import Base, engine
 from app.models.dataset import Dataset
 from app.models.job import Job
