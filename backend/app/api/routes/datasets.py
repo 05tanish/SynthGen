@@ -243,7 +243,11 @@ async def generate_from_prompt(
 
 
 @router.get("/", response_model=list[DatasetResponse])
-def get_datasets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_datasets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Get all datasets for the authenticated user.
+    Supports pagination with skip and limit parameters.
+    """
     try:
         logger.info(f"Fetching datasets for user {current_user.id}")
         datasets = db.query(Dataset).filter(Dataset.user_id == current_user.id).order_by(Dataset.created_at.desc()).offset(skip).limit(limit).all()
