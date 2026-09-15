@@ -2,8 +2,9 @@ services:
   - type: web
     name: synthetix-backend
     plan: free
+    rootDir: backend
     runtime: docker
-    dockerfilePath: ./backend/Dockerfile
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: DATABASE_URL
         sync: false
