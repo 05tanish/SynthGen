@@ -43,15 +43,36 @@ from app.models.api_key import ApiKey
 from app.models.template import Template
 Base.metadata.create_all(bind=engine)
 
+# ─── COOP Middleware ──────────────────────────────────────────────────────────
+# Google Sign-In popup uses postMessage to communicate with the opener window.
+# The default COOP value "same-origin" blocks that. We must use
+# "same-origin-allow-popups" so the OAuth popup can call postMessage.
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class COOPMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+        return response
+
+app.add_middleware(COOPMiddleware)
+
 # CORS configuration
+_cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://localhost:80",
+    "http://localhost",
+]
+# Add production frontend URL if set
+if settings.FRONTEND_URL:
+    _cors_origins.append(settings.FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://localhost:8000",
-    ],
+    allow_origins=_cors_origins,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["*"],
