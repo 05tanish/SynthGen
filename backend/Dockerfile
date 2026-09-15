@@ -7,11 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy from backend/ subdirectory (Render uses repo root as build context)
-COPY backend/requirements.txt .
+# Copy requirements and install
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ .
+# Copy source code
+COPY . .
 
 ENV PYTHONPATH=/app
 
