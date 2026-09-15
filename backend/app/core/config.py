@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     FILE_STORAGE_PATH: str = "./storage"
     MAX_UPLOAD_SIZE_MB: int = 50
     RESEND_API_KEY: Optional[str] = None
+    
+    # Frontend URL for CORS (optional)
+    FRONTEND_URL: Optional[str] = None
 
     # Cloudinary (file storage)
     CLOUDINARY_CLOUD_NAME: str = "placeholder_cloud_name"

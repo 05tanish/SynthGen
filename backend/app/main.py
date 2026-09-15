@@ -3,12 +3,40 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import health
 from app.core.config import settings
+import uuid
+import time
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Agentic AI Synthetic Data Generator API",
     version="1.0.0"
 )
+
+# ─── Request ID Middleware for debugging ─────────────────────────────────────
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    """Add unique request ID to each request for debugging"""
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    
+    start_time = time.time()
+    
+    response = await call_next(request)
+    
+    process_time = time.time() - start_time
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    # Log request details
+    from app.core.logging import logger
+    logger.info(
+        f"Request: {request.method} {request.url.path} | "
+        f"Status: {response.status_code} | "
+        f"Time: {process_time:.3f}s | "
+        f"Request-ID: {request_id}"
+    )
+    
+    return response
 
 # ─── Global exception handler — hides internal details from all API responses ─
 def _get_cors_headers(request: Request) -> dict:
@@ -93,7 +121,7 @@ class COOPMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(COOPMiddleware)
 
-# CORS configuration
+# CORS configuration - Allow all origins in production for Railway deployment
 _cors_origins = [
     # Local dev
     "http://localhost:5173",
@@ -104,19 +132,23 @@ _cors_origins = [
     "http://localhost",
     # Production — Vercel frontend
     "https://synthetic-data-generator-mu.vercel.app",
+    # Railway backend (for internal health checks)
+    "https://synthetix-backend-production-43d0.up.railway.app",
 ]
+
 # Also add any extra URL from env (e.g. custom domain / preview deployments)
-if settings.FRONTEND_URL:
+if hasattr(settings, 'FRONTEND_URL') and settings.FRONTEND_URL:
     _cors_origins.append(settings.FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    # Covers localhost variants + all *.vercel.app preview URLs
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://[a-z0-9-]+\.vercel\.app$",
+    # Covers localhost variants + all Vercel/Railway preview URLs
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://[a-z0-9-]+\.(vercel\.app|railway\.app)$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    expose_headers=["*"],
 )
 
 # Include routers
