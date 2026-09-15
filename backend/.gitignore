@@ -49,6 +49,7 @@ temp/
 *.xls
 *.json
 *.parquet
+!vercel.json
 !app/templates/**/*.csv
 !tests/fixtures/**/*.csv
 

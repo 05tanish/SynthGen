@@ -48,6 +48,8 @@ uploads/
 *.parquet
 !sample.csv
 !**/example*.csv
+!vercel.json
+!**/vercel.json
 
 # Logs
 *.log
