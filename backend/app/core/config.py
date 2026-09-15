@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     # Redis
     UPSTASH_REDIS_URL: str
-    UPSTASH_REDIS_TOKEN: str
+    UPSTASH_REDIS_TOKEN: Optional[str] = None  # Not needed for local Redis
     
     # LLM
     LLM_PROVIDER: str = "groq"
@@ -24,11 +24,18 @@ class Settings(BaseSettings):
     FILE_STORAGE_PATH: str = "./storage"
     MAX_UPLOAD_SIZE_MB: int = 50
     RESEND_API_KEY: Optional[str] = None
+
+    # Cloudinary (file storage)
+    CLOUDINARY_CLOUD_NAME: str = "placeholder_cloud_name"
+    CLOUDINARY_API_KEY: str = "placeholder_cloudinary_api_key"
+    CLOUDINARY_API_SECRET: str = "placeholder_cloudinary_api_secret"
     
     # Auth
     SECRET_KEY: str = "agentic-ai-super-secret-key-change-in-prod"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
+    GOOGLE_CLIENT_ID: str = "placeholder_google_client_id"
+    FRONTEND_URL: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file="../.env", env_file_encoding="utf-8", extra="ignore")
 
