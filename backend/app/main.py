@@ -66,7 +66,15 @@ from app.models.template import Template
 @app.on_event("startup")
 def startup_db():
     try:
+        from sqlalchemy import text
         Base.metadata.create_all(bind=engine)
+        # Ensure hashed_password is nullable for Google OAuth in PostgreSQL
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL;"))
+                conn.commit()
+        except Exception:
+            pass
     except Exception as e:
         import logging
         logging.getLogger("uvicorn.error").warning(f"Database table initialization warning: {e}")
