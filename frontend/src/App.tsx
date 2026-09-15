@@ -7,7 +7,6 @@ import Home from './pages/Home';
 import Pricing from './pages/Pricing';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Verify from './pages/Verify';
 
 // App Pages
 import Dashboard from './pages/Dashboard';
@@ -27,7 +26,6 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/verify" element={<Verify />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/docs" element={<Home />} />
 
