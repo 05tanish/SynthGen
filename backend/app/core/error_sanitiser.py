@@ -11,18 +11,22 @@ import traceback
 # Mapping: known internal exception substrings → friendly user message
 _SAFE_MESSAGES = [
     # LLM / generation errors
+    ("llm_api_key", "The AI service is not properly configured. Please contact support."),
+    ("environment variable is not set", "The AI service is not properly configured. Please contact support."),
+    ("api key", "The AI service configuration is invalid. Please contact support."),
     ("invalid json", "The AI model returned an unexpected response. Please try again or rephrase your prompt."),
     ("output_parsing_failure", "The AI model returned an unexpected response. Please try again or rephrase your prompt."),
     ("pydantic", "The AI model returned an unexpected response. Please try again or rephrase your prompt."),
     ("langchain", "The AI generation pipeline encountered an error. Please try again."),
     ("could not extract a valid schema", "Unable to understand the dataset request. Please rephrase your prompt in plain language (e.g. 'Generate a customer dataset with name, email, country, and signup date')."),
     ("could not generate valid csv", "Unable to generate seed data from your prompt. Try being more specific or use a file upload instead."),
+    ("seedgeneratoragent", "Failed to generate seed data. The AI service may be temporarily unavailable. Please try again."),
     # LLM API errors
     ("rate limit", "The AI service is currently busy. Please wait a moment and try again."),
-    ("api key", "The AI service configuration is invalid. Please contact support."),
+    ("429", "Too many requests. Please wait a moment and try again."),
     ("timeout", "The request took too long. Please try again with a simpler prompt."),
     ("connection", "Could not reach the AI service. Please check your network and try again."),
-    ("429", "Too many requests. Please wait a moment and try again."),
+    ("groq", "The AI service encountered an error. Please try again in a moment."),
     # File errors
     ("source file not found", "The uploaded file could not be found. Please upload it again."),
     ("no such file", "The file could not be processed. Please try uploading again."),

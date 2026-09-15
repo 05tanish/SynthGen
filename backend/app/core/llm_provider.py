@@ -8,6 +8,9 @@ class LLMProvider:
     @staticmethod
     def get_llm(temperature: float = 0.0) -> BaseChatModel:
         """Get the configured LLM instance"""
+        if not settings.LLM_API_KEY:
+            raise ValueError("LLM_API_KEY environment variable is not set. Please configure it in Railway.")
+        
         if settings.LLM_PROVIDER.lower() == "groq":
             return ChatGroq(
                 temperature=temperature,

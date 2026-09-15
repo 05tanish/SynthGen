@@ -96,12 +96,27 @@ async def upload_dataset(
             final_row_count = 30000
 
         # Upload to Cloudinary — store the returned URL as source_filename
-        cloudinary_url = await run_in_threadpool(
-            cloud_storage.upload_file,
-            file_bytes,
-            f"uploads/{file_id}",
-            "synthetix",
-        )
+        try:
+            cloudinary_url = await run_in_threadpool(
+                cloud_storage.upload_file,
+                file_bytes,
+                f"uploads/{file_id}",
+                "synthetix",
+            )
+        except ValueError as ve:
+            # Cloudinary credentials not configured
+            logger.error(f"Cloudinary configuration error: {ve}")
+            raise HTTPException(
+                status_code=500,
+                detail="File storage service is not configured. Please contact support or check CLOUDINARY credentials in environment variables."
+            )
+        except Exception as e:
+            # Cloudinary upload failed (network, quota, auth, etc.)
+            logger.error(f"Cloudinary upload failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"File upload failed: {str(e)}. The storage service may be unavailable or over quota. Please try again later."
+            )
 
         db_dataset = Dataset(
             name=file.filename,
@@ -143,6 +158,8 @@ async def generate_from_prompt(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        logger.info(f"Generate-from-prompt called with prompt: {request.prompt[:100]}... | row_count: {request.row_count}")
+        
         # Validate request (Pydantic will auto-validate, but we add extra checks)
         if request.row_count > 30000:
             raise HTTPException(
@@ -151,93 +168,148 @@ async def generate_from_prompt(
             )
         
         # 1. Ask LLM to generate a seed CSV
-        agent = SeedGeneratorAgent()
-        seed_csv_str = await run_in_threadpool(agent.generate_seed_csv, request.prompt)
+        logger.info("Initializing SeedGeneratorAgent...")
+        try:
+            agent = SeedGeneratorAgent()
+        except Exception as e:
+            logger.error(f"Failed to initialize SeedGeneratorAgent: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="AI service is not properly configured. Please check LLM_API_KEY environment variable."
+            )
+        
+        logger.info("Generating seed CSV from prompt...")
+        try:
+            seed_csv_str = await run_in_threadpool(agent.generate_seed_csv, request.prompt)
+            logger.info(f"Seed CSV generated successfully. Length: {len(seed_csv_str)} chars")
+        except ValueError as ve:
+            # ValueError from seed generator carries a safe user-facing message
+            logger.error(f"Seed generation ValueError: {ve}")
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            logger.error(f"Seed generation failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate seed data. The AI service may be rate-limited or unavailable. Please try again in a moment."
+            )
         
         # 2. Write seed CSV to a temp file then upload to Cloudinary
         file_id = str(uuid.uuid4())
         seed_bytes = seed_csv_str.encode("utf-8")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-            tmp.write(seed_bytes)
-            file_path = tmp.name
+        file_path = None
+        
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+                tmp.write(seed_bytes)
+                file_path = tmp.name
 
-        cloudinary_url = await run_in_threadpool(
-            cloud_storage.upload_file,
-            seed_bytes,
-            f"uploads/{file_id}",
-            "synthetix",
-        )
+            logger.info(f"Uploading seed CSV to Cloudinary...")
+            try:
+                cloudinary_url = await run_in_threadpool(
+                    cloud_storage.upload_file,
+                    seed_bytes,
+                    f"uploads/{file_id}",
+                    "synthetix",
+                )
+                logger.info(f"Cloudinary upload successful: {cloudinary_url}")
+            except ValueError as ve:
+                # Cloudinary credentials not configured
+                logger.error(f"Cloudinary configuration error: {ve}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="File storage service is not configured. Please contact support or check CLOUDINARY credentials in environment variables."
+                )
+            except Exception as e:
+                # Cloudinary upload failed (network, quota, auth, etc.)
+                logger.error(f"Cloudinary upload failed: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"File upload failed: {str(e)}. The storage service may be unavailable or over quota. Please try again later."
+                )
+                
+            # 3. Process it just like a normal upload
+            logger.info("Loading and profiling seed data...")
+            loaded_data = await run_in_threadpool(load_from_file, file_path)
             
-        # 3. Process it just like a normal upload
-        loaded_data = await run_in_threadpool(load_from_file, file_path)
-        
-        # Validate seed dataset has minimum viable rows
-        if loaded_data.row_count < 8:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            raise HTTPException(
-                status_code=400, 
-                detail=f"The AI generated only {loaded_data.row_count} seed rows. Minimum 8 rows required. This often happens with overly complex or safety-sensitive prompts. Please simplify your prompt and try again."
-            )
-        
-        # Validate column count
-        if loaded_data.column_count > 100:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Generated dataset has {loaded_data.column_count} columns. Maximum 100 columns allowed. Please simplify your prompt."
-            )
+            # Validate seed dataset has minimum viable rows
+            if loaded_data.row_count < 8:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"The AI generated only {loaded_data.row_count} seed rows. Minimum 8 rows required. This often happens with overly complex or safety-sensitive prompts. Please simplify your prompt and try again."
+                )
             
-        profile = await run_in_threadpool(profile_dataset, loaded_data.dataframe)
-        relationships = await run_in_threadpool(analyze_relationships, loaded_data.dataframe)
+            # Validate column count
+            if loaded_data.column_count > 100:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Generated dataset has {loaded_data.column_count} columns. Maximum 100 columns allowed. Please simplify your prompt."
+                )
+            
+            logger.info(f"Seed data loaded: {loaded_data.row_count} rows, {loaded_data.column_count} columns")
+                
+            profile = await run_in_threadpool(profile_dataset, loaded_data.dataframe)
+            relationships = await run_in_threadpool(analyze_relationships, loaded_data.dataframe)
+            
+            # Truncate JSON data to fit within limits
+            from app.schemas.dataset import truncate_json_data
+            profile = truncate_json_data(profile, 1000, "Profile")
+            relationships = truncate_json_data(relationships, 1000, "Relationships")
+            
+            # 4. Save to DB — embed row_count in prompt so graph_worker can parse it
+            # We prefix the prompt with the row count instruction for reliable parsing
+            enriched_prompt = f"Generate exactly {request.row_count} rows. {request.prompt}"
+            
+            # Ensure enriched prompt doesn't exceed limit
+            if len(enriched_prompt) > 2000:
+                enriched_prompt = enriched_prompt[:2000]
+            
+            logger.info("Creating dataset record in database...")
+            db_dataset = Dataset(
+                name=f"Generated: {request.prompt[:40]}...",
+                source_type="prompt",
+                source_filename=cloudinary_url,   # URL instead of local path
+                row_count=request.row_count,
+                column_count=loaded_data.column_count,
+                prompt=enriched_prompt,
+                profile_json=profile,
+                relationships_json=relationships,
+                user_id=current_user.id,
+            )
+            db.add(db_dataset)
+            db.commit()
+            db.refresh(db_dataset)
+            
+            # 5. Automatically enqueue the Generation Job to expand the seed dataset
+            logger.info("Creating generation job...")
+            job = Job(dataset_id=db_dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+            
+            background_tasks.add_task(run_generation_job, job.id)
+            
+            logger.info(f"Generation job started successfully. Job ID: {job.id}, Dataset ID: {db_dataset.id}")
+            return {"message": "Generation job started", "job_id": job.id, "dataset_id": db_dataset.id}
         
-        # Truncate JSON data to fit within limits
-        from app.schemas.dataset import truncate_json_data
-        profile = truncate_json_data(profile, 1000, "Profile")
-        relationships = truncate_json_data(relationships, 1000, "Relationships")
-        
-        # 4. Save to DB — embed row_count in prompt so graph_worker can parse it
-        # We prefix the prompt with the row count instruction for reliable parsing
-        enriched_prompt = f"Generate exactly {request.row_count} rows. {request.prompt}"
-        
-        # Ensure enriched prompt doesn't exceed limit
-        if len(enriched_prompt) > 2000:
-            enriched_prompt = enriched_prompt[:2000]
-        
-        db_dataset = Dataset(
-            name=f"Generated: {request.prompt[:40]}...",
-            source_type="prompt",
-            source_filename=cloudinary_url,   # URL instead of local path
-            row_count=request.row_count,
-            column_count=loaded_data.column_count,
-            prompt=enriched_prompt,
-            profile_json=profile,
-            relationships_json=relationships,
-            user_id=current_user.id,
-        )
-        db.add(db_dataset)
-        db.commit()
-        db.refresh(db_dataset)
-        
-        # 5. Automatically enqueue the Generation Job to expand the seed dataset
-        job = Job(dataset_id=db_dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
-        db.add(job)
-        db.commit()
-        db.refresh(job)
-        
-        background_tasks.add_task(run_generation_job, job.id)
-        
-        return {"message": "Generation job started", "job_id": job.id, "dataset_id": db_dataset.id}
+        finally:
+            # Clean up temp file
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file {file_path}: {e}")
 
         
     except HTTPException:
+        # Re-raise HTTP exceptions as-is
         raise
     except ValueError as e:
         # ValueError from seed generator carries a safe user-facing message
         logger.error(f"Seed generation ValueError: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Log full error for debugging
+        logger.error(f"Unexpected error in generate_from_prompt: {e}", exc_info=True)
         from app.core.error_sanitiser import raise_safe_http_error
         raise_safe_http_error(e, status_code=500, context="generate_from_prompt")
 

@@ -64,3 +64,54 @@ def simple_health_check():
     Useful for basic uptime monitoring without dependencies.
     """
     return {"status": "ok"}
+
+
+@router.get("/health/llm")
+def llm_health_check():
+    """Check if LLM service is properly configured"""
+    
+    try:
+        # Check if API key is set
+        if not settings.LLM_API_KEY or settings.LLM_API_KEY == "":
+            return {
+                "status": "error",
+                "provider": settings.LLM_PROVIDER,
+                "model": settings.LLM_MODEL,
+                "error": "LLM_API_KEY environment variable is not set"
+            }
+        
+        # Check if API key looks valid (not a placeholder)
+        if "placeholder" in settings.LLM_API_KEY.lower() or "your_" in settings.LLM_API_KEY.lower():
+            return {
+                "status": "error",
+                "provider": settings.LLM_PROVIDER,
+                "model": settings.LLM_MODEL,
+                "error": "LLM_API_KEY appears to be a placeholder value"
+            }
+        
+        # Try to initialize the LLM
+        try:
+            from app.core.llm_provider import LLMProvider
+            llm = LLMProvider.get_llm(temperature=0.0)
+            return {
+                "status": "ok",
+                "provider": settings.LLM_PROVIDER,
+                "model": settings.LLM_MODEL,
+                "api_key_length": len(settings.LLM_API_KEY),
+                "api_key_prefix": settings.LLM_API_KEY[:10] + "..." if len(settings.LLM_API_KEY) > 10 else "too_short"
+            }
+        except Exception as e:
+            logger.error(f"LLM initialization failed: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "provider": settings.LLM_PROVIDER,
+                "model": settings.LLM_MODEL,
+                "error": f"Failed to initialize LLM: {str(e)}"
+            }
+            
+    except Exception as e:
+        logger.error(f"LLM health check failed: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e)
+        }
