@@ -17,6 +17,18 @@ from app.core.logging import logger
 
 
 def _configure():
+    """Configure Cloudinary with credentials from environment variables."""
+    # Validate credentials are set
+    if (settings.CLOUDINARY_API_KEY == "placeholder_cloudinary_api_key" or 
+        settings.CLOUDINARY_API_SECRET == "placeholder_cloudinary_api_secret" or
+        not settings.CLOUDINARY_CLOUD_NAME or
+        settings.CLOUDINARY_CLOUD_NAME == "placeholder_cloud_name"):
+        raise ValueError(
+            "Cloudinary credentials not configured. Please set CLOUDINARY_CLOUD_NAME, "
+            "CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables. "
+            "Get these from https://cloudinary.com/console"
+        )
+    
     cloudinary.config(
         cloud_name=settings.CLOUDINARY_CLOUD_NAME,
         api_key=settings.CLOUDINARY_API_KEY,
@@ -36,18 +48,30 @@ def upload_file(file_bytes: bytes, public_id: str, folder: str = "synthetix") ->
 
     Returns:
         The secure HTTPS URL of the uploaded file.
+    
+    Raises:
+        ValueError: If Cloudinary credentials are not configured.
+        Exception: If upload fails (network, quota, authentication, etc.)
     """
-    _configure()
-    result = cloudinary.uploader.upload(
-        file_bytes,
-        public_id=public_id,
-        folder=folder,
-        resource_type="raw",   # required for non-image files (CSV, JSON, etc.)
-        overwrite=True,
-    )
-    url: str = result["secure_url"]
-    logger.info(f"Uploaded to Cloudinary: {url}")
-    return url
+    try:
+        _configure()
+        result = cloudinary.uploader.upload(
+            file_bytes,
+            public_id=public_id,
+            folder=folder,
+            resource_type="raw",   # required for non-image files (CSV, JSON, etc.)
+            overwrite=True,
+        )
+        url: str = result["secure_url"]
+        logger.info(f"Uploaded to Cloudinary: {url}")
+        return url
+    except ValueError as ve:
+        # Credentials not configured
+        logger.error(f"Cloudinary configuration error: {ve}")
+        raise
+    except Exception as e:
+        logger.error(f"Cloudinary upload failed for {public_id}: {e}", exc_info=True)
+        raise Exception(f"File upload failed: {str(e)}") from e
 
 
 def download_to_temp(url: str, suffix: str = ".csv") -> str:
