@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.concurrency import run_in_threadpool
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from app.db.database import get_db
@@ -314,7 +314,7 @@ async def generate_from_prompt(
         raise_safe_http_error(e, status_code=500, context="generate_from_prompt")
 
 
-@router.get("/", response_model=list[DatasetResponse])
+@router.get("/", response_model=List[DatasetResponse])
 async def get_datasets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Get all datasets for the authenticated user.
