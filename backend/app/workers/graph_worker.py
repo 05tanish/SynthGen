@@ -1,5 +1,5 @@
 import os
-import shutil
+import tempfile
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from app.graph.workflow import build_workflow
 from app.graph.state import GraphState
 from app.core.logging import logger
 from app.core.config import settings
+from app.core import storage as cloud_storage
 
 
 def _update_job(db: Session, job: Job, **kwargs):
@@ -67,10 +68,20 @@ def run_generation_job(job_id: int):
 
         _update_job(db, job, status=JobStatus.RUNNING, current_step="loading_data")
 
-        # 1. Resolve the absolute path to the source file
-        source_path = os.path.abspath(dataset.source_filename)
-        if not os.path.exists(source_path):
-            _update_job(db, job, status=JobStatus.FAILED, error_message=f"Source file not found: {source_path}")
+        # 1. Resolve source — if it's a Cloudinary URL, download to a temp file
+        source_ref = dataset.source_filename
+        local_source_path = None
+
+        if source_ref and source_ref.startswith("http"):
+            ext = os.path.splitext(source_ref.split("?")[0])[-1] or ".csv"
+            local_source_path = cloud_storage.download_to_temp(source_ref, suffix=ext)
+            source_path = local_source_path
+        else:
+            # Legacy: local path
+            source_path = os.path.abspath(source_ref) if source_ref else None
+
+        if not source_path or not os.path.exists(source_path):
+            _update_job(db, job, status=JobStatus.FAILED, error_message="Source file not found.")
             return
 
         # 2. Setup State — no DataFrames, only the file path
@@ -118,11 +129,6 @@ def run_generation_job(job_id: int):
             is_success = True
 
         if is_success and synth_tmp_path:
-            storage_dir = os.path.abspath(
-                os.path.join(settings.FILE_STORAGE_PATH, "synthetic")
-            )
-            os.makedirs(storage_dir, exist_ok=True)
-
             import uuid
             import pandas as pd
 
@@ -130,53 +136,54 @@ def run_generation_job(job_id: int):
 
             # Trim or expand to exactly the requested row count
             requested_rows = dataset.row_count or len(synth_df)
-            
-            # Enforce maximum row limit
             if requested_rows > 30000:
                 logger.warning(f"Requested rows {requested_rows} exceeds limit. Capping to 30,000.")
                 requested_rows = 30000
 
             if len(synth_df) > requested_rows:
-                # Trim to exactly the requested number of rows
                 synth_df = synth_df.sample(n=requested_rows, random_state=42).reset_index(drop=True)
-                logger.info(f"Trimmed synthetic output from {len(pd.read_csv(synth_tmp_path))} to {requested_rows} rows.")
             elif len(synth_df) < requested_rows:
-                # If we got fewer rows than requested, try to expand by resampling with noise
                 shortfall = requested_rows - len(synth_df)
                 logger.warning(f"Generated {len(synth_df)} rows but {requested_rows} were requested. Filling shortfall of {shortfall} by resampling.")
                 extra = synth_df.sample(n=shortfall, replace=True, random_state=99).reset_index(drop=True)
                 synth_df = pd.concat([synth_df, extra], ignore_index=True)
 
             # Remove exact duplicate rows
-            pre_dedup = len(synth_df)
             synth_df = synth_df.drop_duplicates()
             if len(synth_df) < requested_rows:
-                # Refill after dedup
                 shortfall = requested_rows - len(synth_df)
                 extra = synth_df.sample(n=shortfall, replace=True, random_state=77).reset_index(drop=True)
                 synth_df = pd.concat([synth_df, extra], ignore_index=True)
-            # Final trim to exact count
             synth_df = synth_df.head(requested_rows).reset_index(drop=True)
 
             logger.info(f"Final synthetic dataset: {len(synth_df)} rows (requested: {requested_rows})")
 
+            # Write final CSV to a temp file, upload to Cloudinary
             filename = f"synthetic_{dataset.id}_{uuid.uuid4().hex[:8]}.csv"
-            final_path = os.path.join(storage_dir, filename)
-            
-            # Use atomic write pattern: write to temp, then move
-            temp_final_path = final_path + ".tmp"
-            synth_df.to_csv(temp_final_path, index=False)
-            os.rename(temp_final_path, final_path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as f:
+                synth_df.to_csv(f, index=False)
+                final_tmp = f.name
 
-            # Clean up temp synthetic file after successful save
+            try:
+                with open(final_tmp, "rb") as f:
+                    csv_bytes = f.read()
+                cloudinary_url = cloud_storage.upload_file(
+                    csv_bytes,
+                    f"synthetic/{filename.replace('.csv', '')}",
+                    "synthetix",
+                )
+            finally:
+                _cleanup_temp_file(final_tmp)
+
+            # Clean up temp synthetic file after successful upload
             _cleanup_temp_file(synth_tmp_path)
-            synth_tmp_path = None  # Mark as cleaned up
+            synth_tmp_path = None
 
             _update_job(
                 db, job,
                 status=JobStatus.COMPLETED,
                 current_step="finished",
-                synthetic_file_path=final_path,
+                synthetic_file_path=cloudinary_url,   # URL stored in DB
                 evaluation_report_json=report,
             )
         else:
@@ -196,10 +203,7 @@ def run_generation_job(job_id: int):
 
     except Exception as e:
         logger.error(f"Job {job_id} failed with exception: {str(e)}", exc_info=True)
-        
-        # Always clean up temp file on exception
         _cleanup_temp_file(synth_tmp_path)
-        
         try:
             from app.core.error_sanitiser import safe_error_message
             job = db.query(Job).filter(Job.id == job_id).first()
@@ -208,4 +212,7 @@ def run_generation_job(job_id: int):
         except Exception as inner_e:
             logger.error(f"Failed to update job status after error: {inner_e}")
     finally:
+        # Clean up temp local source file if we downloaded from Cloudinary
+        if local_source_path and os.path.exists(local_source_path):
+            _cleanup_temp_file(local_source_path)
         db.close()
