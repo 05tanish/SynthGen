@@ -59,21 +59,25 @@ app.add_middleware(COOPMiddleware)
 
 # CORS configuration
 _cors_origins = [
+    # Local dev
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://localhost:8000",
     "http://localhost:80",
     "http://localhost",
+    # Production — Vercel frontend
+    "https://synthetic-data-generator-mu.vercel.app",
 ]
-# Add production frontend URL if set
+# Also add any extra URL from env (e.g. custom domain / preview deployments)
 if settings.FRONTEND_URL:
     _cors_origins.append(settings.FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
+    # Covers localhost variants + all *.vercel.app preview URLs
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://[a-z0-9-]+\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
