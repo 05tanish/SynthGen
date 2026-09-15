@@ -51,7 +51,7 @@ const History: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      const res = await axios.get(`${API_BASE}/api/datasets`);
+      const res = await axios.get(`${API_BASE}/api/datasets/`);
       const data: Dataset[] = res.data;
       setDatasets(data);
 

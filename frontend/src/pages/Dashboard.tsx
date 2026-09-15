@@ -51,7 +51,7 @@ const Dashboard: React.FC = () => {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
         // Fetch datasets
-        const res = await axios.get(`${API_BASE}/api/datasets`);
+        const res = await axios.get(`${API_BASE}/api/datasets/`);
         const data: Dataset[] = res.data || [];
         setDatasets(data.slice(0, 5)); // Show only 5 most recent
 
