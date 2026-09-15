@@ -17,7 +17,7 @@ const Login: React.FC = () => {
     try {
       setIsLoading(true);
       setError('');
-      const res = await axios.post(`${API_BASE}/v1/auth/google-login`, {
+      const res = await axios.post(`${API_BASE}/api/v1/auth/google-login`, {
         token: credentialResponse.credential,
       });
       login(res.data.access_token);

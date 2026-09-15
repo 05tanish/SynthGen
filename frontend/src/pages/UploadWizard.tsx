@@ -37,7 +37,7 @@ const Generate: React.FC = () => {
     if (!jobId || jobDone) return;
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`${API_BASE}/jobs/${jobId}`);
+        const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`);
         const { status, current_step } = res.data;
         setJobStep(current_step);
         if (status === 'completed' || status === 'failed') {
@@ -89,12 +89,12 @@ const Generate: React.FC = () => {
         }
         
         formData.append('prompt', generationPrompt);
-        const uploadRes = await axios.post(`${API_BASE}/datasets/upload`, formData);
+        const uploadRes = await axios.post(`${API_BASE}/api/datasets/upload`, formData);
         const datasetId = uploadRes.data.id;
-        const genRes = await axios.post(`${API_BASE}/datasets/${datasetId}/generate`);
+        const genRes = await axios.post(`${API_BASE}/api/datasets/${datasetId}/generate`);
         newJobId = genRes.data.job_id;
       } else {
-        const genRes = await axios.post(`${API_BASE}/datasets/generate-from-prompt`, {
+        const genRes = await axios.post(`${API_BASE}/api/datasets/generate-from-prompt`, {
           prompt: prompt.trim(),
           row_count: rows,
           format,

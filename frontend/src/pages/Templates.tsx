@@ -44,7 +44,7 @@ const Templates: React.FC = () => {
       try {
         const token = localStorage.getItem('token');
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        const res = await axios.get(`${API_BASE}/templates`);
+        const res = await axios.get(`${API_BASE}/api/templates`);
         if (res.data && res.data.length > 0) setTemplates(res.data);
       } catch { /* use defaults */ } finally { setIsLoading(false); }
     };

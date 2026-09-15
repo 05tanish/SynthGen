@@ -37,7 +37,7 @@ export default function JobTracker() {
     const fetchJob = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get(`${API_BASE}/jobs/${jobId}`, {
+        const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setJob(res.data);
@@ -62,7 +62,7 @@ export default function JobTracker() {
   const handleDownload = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`${API_BASE}/jobs/${jobId}/download`, {
+      const res = await axios.get(`${API_BASE}/api/jobs/${jobId}/download`, {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${token}` }
       });

@@ -231,22 +231,29 @@ class SeedGeneratorAgent:
         ]
 
         try:
+            logger.info(f"Calling LLM for schema design (attempt {attempt+1})...")
             result = self.llm.invoke(messages)
             raw = result.content.strip()
             logger.info(f"Schema LLM raw output (attempt {attempt+1}):\n{raw[:500]}")
 
             parsed = _extract_json_object(raw)
             if parsed and "columns" in parsed and len(parsed["columns"]) > 0:
+                logger.info(f"Successfully parsed schema with {len(parsed['columns'])} columns")
                 return parsed
 
-            logger.warning(f"Schema extraction attempt {attempt+1} failed, raw: {raw[:200]}")
+            logger.warning(f"Schema extraction attempt {attempt+1} failed - invalid format. Raw: {raw[:200]}")
         except Exception as e:
-            logger.error(f"Schema LLM call failed on attempt {attempt+1}: {e}")
+            logger.error(f"Schema LLM call failed on attempt {attempt+1}: {e}", exc_info=True)
+            # If it's a rate limit error, don't retry immediately
+            if "rate" in str(e).lower() or "429" in str(e):
+                logger.error("Rate limit detected. Falling back to Faker immediately.")
+                return _generate_fallback_schema(prompt)
 
         if attempt < 2:
+            logger.info(f"Retrying schema design (attempt {attempt+2})...")
             return self._design_schema(prompt, attempt + 1)
 
-        logger.warning("Falling back to synthetic schema for prompt.")
+        logger.warning("All schema design attempts failed. Falling back to synthetic schema.")
         return _generate_fallback_schema(prompt)
 
     def _generate_csv_from_schema(self, schema: Dict[str, Any], original_prompt: str, attempt: int = 0) -> str:
@@ -268,23 +275,31 @@ class SeedGeneratorAgent:
         ]
 
         try:
+            logger.info(f"Calling LLM for CSV generation (attempt {attempt+1})...")
             result = self.csv_llm.invoke(messages)
             raw = result.content.strip()
-            logger.info(f"CSV LLM raw output (attempt {attempt+1}):\n{raw[:500]}")
+            logger.info(f"CSV LLM raw output (attempt {attempt+1}) - {len(raw)} chars, {len(raw.splitlines())} lines")
+            logger.debug(f"CSV raw preview:\n{raw[:500]}")
 
             cleaned = _extract_csv(raw, col_names)
 
             if _validate_csv(cleaned, col_names):
+                logger.info(f"Successfully generated and validated CSV with {len(cleaned.splitlines())} lines")
                 return cleaned
 
-            logger.warning(f"CSV validation failed on attempt {attempt+1}")
+            logger.warning(f"CSV validation failed on attempt {attempt+1} - cleaned CSV has {len(cleaned.splitlines())} lines")
         except Exception as e:
-            logger.error(f"CSV LLM call failed on attempt {attempt+1}: {e}")
+            logger.error(f"CSV LLM call failed on attempt {attempt+1}: {e}", exc_info=True)
+            # If it's a rate limit error, don't retry immediately
+            if "rate" in str(e).lower() or "429" in str(e):
+                logger.error("Rate limit detected. Falling back to Faker immediately.")
+                return _generate_fallback_csv(schema, row_count=10)
 
         if attempt < 2:
+            logger.info(f"Retrying CSV generation (attempt {attempt+2})...")
             return self._generate_csv_from_schema(schema, original_prompt, attempt + 1)
 
-        logger.warning("Falling back to Faker-generated seed CSV.")
+        logger.warning("All CSV generation attempts failed. Falling back to Faker-generated seed CSV.")
         return _generate_fallback_csv(schema, row_count=10)
 
     def generate_seed_csv(self, prompt: str) -> str:

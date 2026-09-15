@@ -51,7 +51,7 @@ const Dashboard: React.FC = () => {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
         // Fetch datasets
-        const res = await axios.get(`${API_BASE}/datasets`);
+        const res = await axios.get(`${API_BASE}/api/datasets`);
         const data: Dataset[] = res.data || [];
         setDatasets(data.slice(0, 5)); // Show only 5 most recent
 
@@ -61,7 +61,7 @@ const Dashboard: React.FC = () => {
         await Promise.all(
           data.map(async (d) => {
             try {
-              const jobRes = await axios.get(`${API_BASE}/jobs/by-dataset/${d.id}`);
+              const jobRes = await axios.get(`${API_BASE}/api/jobs/by-dataset/${d.id}`);
               jobs[d.id] = jobRes.data;
               if (jobRes.data.status === 'completed') completedCount++;
             } catch { /* dataset may not have a job yet */ }
@@ -251,7 +251,7 @@ const GenerationRow: React.FC<{
     if (!jobId || status !== 'completed') return;
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`${API_BASE}/jobs/${jobId}/download`, {
+      const res = await axios.get(`${API_BASE}/api/jobs/${jobId}/download`, {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${token}` },
       });

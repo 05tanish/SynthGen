@@ -49,8 +49,8 @@ const DatasetDetail: React.FC = () => {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
         const [dataRes, jobRes] = await Promise.allSettled([
-          axios.get(`${API_BASE}/datasets/${id}`),
-          axios.get(`${API_BASE}/jobs/by-dataset/${id}`),
+          axios.get(`${API_BASE}/api/datasets/${id}`),
+          axios.get(`${API_BASE}/api/jobs/by-dataset/${id}`),
         ]);
 
         if (dataRes.status === 'fulfilled') {
@@ -74,7 +74,7 @@ const DatasetDetail: React.FC = () => {
     if (!job || job.status === 'completed' || job.status === 'failed') return;
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`${API_BASE}/jobs/${job.id}`);
+        const res = await axios.get(`${API_BASE}/api/jobs/${job.id}`);
         setJob(res.data);
         if (res.data.status === 'completed' || res.data.status === 'failed') {
           clearInterval(interval);
@@ -89,7 +89,7 @@ const DatasetDetail: React.FC = () => {
     setIsDownloading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`${API_BASE}/jobs/${job.id}/download`, {
+      const res = await axios.get(`${API_BASE}/api/jobs/${job.id}/download`, {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${token}` },
       });

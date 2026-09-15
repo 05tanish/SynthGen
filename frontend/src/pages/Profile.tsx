@@ -64,7 +64,7 @@ const Profile: React.FC = () => {
     setIsUpdating(true);
     setProfileMsg('');
     try {
-      await axios.patch(`${API_BASE}/v1/auth/me`, { name: name.trim() || null });
+      await axios.patch(`${API_BASE}/api/v1/auth/me`, { name: name.trim() || null });
       setProfileMsg('Profile updated successfully.');
     } catch {
       setProfileMsg('Failed to update profile. Please try again.');
@@ -80,7 +80,7 @@ const Profile: React.FC = () => {
     if (newPwd !== confirmPwd) { setPwdMsg('New passwords do not match.'); return; }
     setIsChangingPwd(true);
     try {
-      await axios.post(`${API_BASE}/v1/auth/change-password`, { current_password: currentPwd, new_password: newPwd });
+      await axios.post(`${API_BASE}/api/v1/auth/change-password`, { current_password: currentPwd, new_password: newPwd });
       setPwdMsg('Password changed successfully.');
       setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
     } catch (err: any) {

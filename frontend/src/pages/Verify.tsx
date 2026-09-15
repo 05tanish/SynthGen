@@ -73,7 +73,7 @@ const Verify: React.FC = () => {
     setIsVerifying(true);
     setError('');
     try {
-      await axios.post(`${API_BASE}/v1/auth/verify-otp`, { email, otp: otpValue });
+      await axios.post(`${API_BASE}/api/v1/auth/verify-otp`, { email, otp: otpValue });
       setSuccess('Email verified! Redirecting to login...');
       setTimeout(() => navigate('/login', { state: { verified: true } }), 1800);
     } catch (err: any) {
@@ -93,7 +93,7 @@ const Verify: React.FC = () => {
     setIsResending(true);
     setError('');
     try {
-      await axios.post(`${API_BASE}/v1/auth/resend-otp`, { email });
+      await axios.post(`${API_BASE}/api/v1/auth/resend-otp`, { email });
       setOtp(Array(OTP_LENGTH).fill(''));
       inputRefs.current[0]?.focus();
       setCooldown(RESEND_COOLDOWN);
