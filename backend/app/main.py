@@ -9,7 +9,7 @@ import time
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Agentic AI Synthetic Data Generator API",
-    version="1.0.0"
+    version="1.0.1"  # Incremented to force Railway redeploy
 )
 
 # ─── Request ID Middleware for debugging ─────────────────────────────────────
