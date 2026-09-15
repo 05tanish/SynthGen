@@ -12,17 +12,16 @@ from app.tools.dataset_profiler import profile_dataset
 from app.tools.relationship_analyzer import analyze_relationships
 from app.core.config import settings
 from app.workers.graph_worker import run_generation_job
-import shutil
+from app.core import storage as cloud_storage
 import os
 import uuid
+import tempfile
 from app.agents.seed_generator_agent import SeedGeneratorAgent
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.core.logging import logger
 
 router = APIRouter()
-
-os.makedirs(os.path.join(settings.FILE_STORAGE_PATH, "uploads"), exist_ok=True)
 
 
 @router.post("/upload", response_model=DatasetResponse)
@@ -42,50 +41,47 @@ async def upload_dataset(
     if ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
 
-    # Save uploaded file
+    # Read file bytes into memory
+    file_bytes = await file.read()
+
+    # Check size before doing anything expensive
+    if len(file_bytes) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large")
+
+    # Write to a temp file so existing loaders (pandas/pyarrow) can read by path
     file_id = str(uuid.uuid4())
-    upload_dir = os.path.abspath(os.path.join(settings.FILE_STORAGE_PATH, "uploads"))
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, f"{file_id}{ext}")
-
+    tmp_path = None
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # Check size
-        if os.path.getsize(file_path) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-            os.remove(file_path)
-            raise HTTPException(status_code=413, detail="File too large")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
 
         # Run heavy CPU-bound profiling in a thread pool to avoid blocking the event loop
-        loaded_data = await run_in_threadpool(load_from_file, file_path)
-        
+        loaded_data = await run_in_threadpool(load_from_file, tmp_path)
+
         # Validate row count (must be between 8 and 30,000)
         if loaded_data.row_count < 8:
-            os.remove(file_path)
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Dataset has only {loaded_data.row_count} rows. Minimum 8 rows required for reliable synthetic generation."
             )
-        
+
         if loaded_data.row_count > 30000:
-            os.remove(file_path)
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Dataset has {loaded_data.row_count} rows. Maximum 30,000 rows allowed."
             )
-        
+
         # Validate column count (max 100 columns)
         if loaded_data.column_count > 100:
-            os.remove(file_path)
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Dataset has {loaded_data.column_count} columns. Maximum 100 columns allowed."
             )
-        
+
         profile = await run_in_threadpool(profile_dataset, loaded_data.dataframe)
         relationships = await run_in_threadpool(analyze_relationships, loaded_data.dataframe)
-        
+
         # Truncate JSON data to fit within limits (agents will re-truncate as needed)
         from app.schemas.dataset import truncate_json_data
         profile = truncate_json_data(profile, 1000, "Profile")
@@ -94,20 +90,24 @@ async def upload_dataset(
         # Parse desired row count from prompt, or default to uploaded file's row count
         from app.tools.synthetic_generator import parse_row_count_from_prompt
         desired_row_count = parse_row_count_from_prompt(prompt) if prompt else None
-        
-        # If user specified a row count in the prompt, use it; otherwise use the uploaded file's row count
         final_row_count = desired_row_count if desired_row_count else loaded_data.row_count
-        
-        # Validate the final row count is within limits
         if final_row_count > 30000:
             logger.warning(f"Requested row count {final_row_count} exceeds limit. Capping to 30,000.")
             final_row_count = 30000
 
+        # Upload to Cloudinary — store the returned URL as source_filename
+        cloudinary_url = await run_in_threadpool(
+            cloud_storage.upload_file,
+            file_bytes,
+            f"uploads/{file_id}",
+            "synthetix",
+        )
+
         db_dataset = Dataset(
             name=file.filename,
             source_type="upload",
-            source_filename=file_path,
-            row_count=final_row_count,  # Store the desired row count, not the uploaded file's count
+            source_filename=cloudinary_url,   # URL instead of local path
+            row_count=final_row_count,
             column_count=loaded_data.column_count,
             prompt=prompt,
             profile_json=profile,
@@ -117,16 +117,16 @@ async def upload_dataset(
         db.add(db_dataset)
         db.commit()
         db.refresh(db_dataset)
-
         return db_dataset
 
     except HTTPException:
         raise
     except Exception as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
         from app.core.error_sanitiser import raise_safe_http_error
         raise_safe_http_error(e, status_code=500, context="upload_dataset")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 class PromptGenerationRequest(BaseModel):
@@ -154,14 +154,19 @@ async def generate_from_prompt(
         agent = SeedGeneratorAgent()
         seed_csv_str = await run_in_threadpool(agent.generate_seed_csv, request.prompt)
         
-        # 2. Save it to a temporary file in uploads
+        # 2. Write seed CSV to a temp file then upload to Cloudinary
         file_id = str(uuid.uuid4())
-        upload_dir = os.path.abspath(os.path.join(settings.FILE_STORAGE_PATH, "uploads"))
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"{file_id}.csv")
-        
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(seed_csv_str)
+        seed_bytes = seed_csv_str.encode("utf-8")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            tmp.write(seed_bytes)
+            file_path = tmp.name
+
+        cloudinary_url = await run_in_threadpool(
+            cloud_storage.upload_file,
+            seed_bytes,
+            f"uploads/{file_id}",
+            "synthetix",
+        )
             
         # 3. Process it just like a normal upload
         loaded_data = await run_in_threadpool(load_from_file, file_path)
@@ -203,8 +208,8 @@ async def generate_from_prompt(
         db_dataset = Dataset(
             name=f"Generated: {request.prompt[:40]}...",
             source_type="prompt",
-            source_filename=file_path,
-            row_count=request.row_count,  # requested rows (not seed rows)
+            source_filename=cloudinary_url,   # URL instead of local path
+            row_count=request.row_count,
             column_count=loaded_data.column_count,
             prompt=enriched_prompt,
             profile_json=profile,
@@ -304,10 +309,10 @@ def generate_synthetic_data(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    if not dataset.source_filename or not os.path.exists(os.path.abspath(dataset.source_filename)):
+    if not dataset.source_filename:
         raise HTTPException(
             status_code=422,
-            detail="Source file is missing from disk. Please re-upload the dataset.",
+            detail="Source file is missing. Please re-upload the dataset.",
         )
 
     # Create Job
@@ -342,12 +347,16 @@ def delete_dataset(dataset_id: int, db: Session = Depends(get_db), current_user:
     # Delete all associated jobs first
     db.query(Job).filter(Job.dataset_id == dataset.id).delete()
     
-    # Delete source file if it exists
-    if dataset.source_filename and os.path.exists(dataset.source_filename):
+    # Delete source file from Cloudinary if it's a URL
+    if dataset.source_filename and dataset.source_filename.startswith("http"):
+        # public_id is embedded in the URL as "synthetix/uploads/<uuid>"
         try:
-            os.remove(dataset.source_filename)
+            parts = dataset.source_filename.split("/upload/")
+            if len(parts) == 2:
+                public_id = parts[1].split(".")[0]  # strip version/extension
+                cloud_storage.delete_file(public_id)
         except Exception as e:
-            logger.warning(f"Failed to delete source file {dataset.source_filename}: {e}")
+            logger.warning(f"Failed to delete Cloudinary asset for dataset {dataset.id}: {e}")
     
     db.delete(dataset)
     db.commit()
