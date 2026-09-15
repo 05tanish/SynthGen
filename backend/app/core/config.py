@@ -25,9 +25,6 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 50
     RESEND_API_KEY: Optional[str] = None
     
-    # Frontend URL for CORS (optional)
-    FRONTEND_URL: Optional[str] = None
-
     # Cloudinary (file storage)
     CLOUDINARY_CLOUD_NAME: str = "placeholder_cloud_name"
     CLOUDINARY_API_KEY: str = "placeholder_cloudinary_api_key"
@@ -38,6 +35,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
     GOOGLE_CLIENT_ID: str = "placeholder_google_client_id"
+    
+    # Frontend URL for CORS
     FRONTEND_URL: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore")
