@@ -1,11 +1,11 @@
-# 🤖 Synthetix - Agentic AI Synthetic Data Generator
+# 🤖 SynthGen - AI-Powered Synthetic Data Generation
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![React](https://img.shields.io/badge/react-18.3-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)
 
-A production-ready web application that autonomously generates high-fidelity synthetic tabular data using an agentic workflow powered by LangGraph, Groq LLaMA, and the Synthetic Data Vault (SDV).
+**AI-Powered Synthetic Data Generation** - A production-ready web application that autonomously generates high-fidelity synthetic tabular data using an agentic workflow powered by LangGraph, Groq LLaMA, and the Synthetic Data Vault (SDV).
 
 ## 🌟 Features
 
@@ -79,8 +79,8 @@ A production-ready web application that autonomously generates high-fidelity syn
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/synthetix.git
-cd synthetix
+git clone https://github.com/yourusername/synthgen.git
+cd synthgen
 ```
 
 ### 2. Backend Setup
@@ -361,10 +361,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- 📧 Email: support@synthetix.ai
-- 💬 Discord: [Join our community](https://discord.gg/synthetix)
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/synthetix/issues)
-- 📖 Docs: [Full Documentation](https://docs.synthetix.ai)
+- 📧 Email: support@synthgen.ai
+- 💬 Discord: [Join our community](https://discord.gg/synthgen)
+- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/synthgen/issues)
+- 📖 Docs: [Full Documentation](https://docs.synthgen.ai)
 
 ## 🗺️ Roadmap
 
@@ -379,8 +379,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/synthetix&type=Date)](https://star-history.com/#yourusername/synthetix&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/synthgen&type=Date)](https://star-history.com/#yourusername/synthgen&Date)
 
 ---
 
-**Made with ❤️ by the Synthetix Team**
+**Made with ❤️ by the SynthGen Team**

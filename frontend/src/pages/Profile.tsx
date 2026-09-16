@@ -214,7 +214,7 @@ const Profile: React.FC = () => {
                   API Access
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem', maxWidth: '380px', lineHeight: 1.6 }}>
-                  Programmatically generate synthetic datasets using the Synthetix REST API.
+                  Programmatically generate synthetic datasets using the SynthGen REST API.
                 </p>
                 <div style={{
                   padding: '0.5rem 1.25rem', borderRadius: '999px',

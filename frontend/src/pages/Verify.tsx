@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
-import { Brain, Mail, RefreshCw, CheckCircle } from 'lucide-react';
+import { Mail, RefreshCw, CheckCircle } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../lib/api';
 import { Button } from '../components/ui/Button';
@@ -110,9 +110,9 @@ const Verify: React.FC = () => {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       minHeight: '100vh', backgroundColor: 'var(--bg-primary)', padding: '1rem',
     }}>
-      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem', textDecoration: 'none' }}>
-        <Brain size={28} color="var(--text-primary)" />
-        <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Synthetix</span>
+      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem', textDecoration: 'none' }}>
+        <img src="/logo.svg" alt="SynthGen" style={{ width: '64px', height: '64px', objectFit: 'contain' }} />
+        <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>SynthGen</span>
       </Link>
 
       <Card style={{ width: '100%', maxWidth: '420px' }}>

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Brain } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -8,11 +7,11 @@ export const Footer: React.FC = () => {
       <div className="page-container flex justify-between" style={{ padding: 0 }}>
         <div>
           <Link to="/" className="flex items-center gap-2" style={{ textDecoration: 'none', marginBottom: '1rem', display: 'inline-flex' }}>
-            <Brain size={24} color="var(--text-primary)" />
-            <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Synthetix</span>
+            <img src="/logo.svg" alt="SynthGen" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
+            <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>SynthGen</span>
           </Link>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', maxWidth: '300px' }}>
-            Generate realistic synthetic data in seconds for development, testing, and ML.
+            AI-Powered Synthetic Data Generation. Create realistic, privacy-safe datasets in seconds.
           </p>
         </div>
         
@@ -38,7 +37,7 @@ export const Footer: React.FC = () => {
       </div>
       <div className="page-container" style={{ padding: '2rem 0 0 0', marginTop: '4rem', borderTop: '1px solid var(--border-subtle)', textAlign: 'center' }}>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-          &copy; {new Date().getFullYear()} Synthetix AI. All rights reserved.
+          &copy; {new Date().getFullYear()} SynthGen AI. All rights reserved.
         </p>
       </div>
     </footer>

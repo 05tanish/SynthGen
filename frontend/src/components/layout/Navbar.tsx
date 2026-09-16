@@ -1,14 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Brain } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 export const Navbar: React.FC = () => {
   return (
     <header className="flex justify-between items-center" style={{ padding: '1.5rem 2rem', position: 'absolute', top: 0, width: '100%', zIndex: 50 }}>
       <Link to="/" className="flex items-center gap-2 text-gradient" style={{ textDecoration: 'none' }}>
-        <Brain size={28} />
-        <span style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Synthetix</span>
+        <img src="/logo.svg" alt="SynthGen" style={{ width: '64px', height: '64px', objectFit: 'contain' }} />
+        <span style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>SynthGen</span>
       </Link>
       
       <nav className="flex items-center gap-6" style={{ display: 'none' }}>

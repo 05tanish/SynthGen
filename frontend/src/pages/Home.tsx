@@ -23,7 +23,7 @@ const Home: React.FC = () => {
             transition={{ duration: 0.6 }}
             className="flex flex-col items-center max-w-4xl mx-auto gap-6"
           >
-            <div className="badge badge-outline mb-4">Synthetix AI 2.0 is now live</div>
+            <div className="badge badge-outline mb-4">SynthGen AI 2.0 is now live</div>
             <h1 style={{ fontSize: '4rem', marginBottom: '1rem' }} className="text-gradient">
               Generate Synthetic Data.<br />Ship Faster.
             </h1>

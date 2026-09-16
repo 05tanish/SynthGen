@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Brain } from 'lucide-react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardContent } from '../components/ui/Card';
@@ -39,9 +38,9 @@ const Register: React.FC = () => {
       backgroundColor: 'var(--bg-primary)',
       padding: '1rem',
     }}>
-      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem', textDecoration: 'none' }}>
-        <Brain size={28} color="var(--text-primary)" />
-        <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Synthetix</span>
+      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem', textDecoration: 'none' }}>
+        <img src="/logo.svg" alt="SynthGen" style={{ width: '64px', height: '64px', objectFit: 'contain' }} />
+        <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>SynthGen</span>
       </Link>
 
       <Card style={{ width: '100%', maxWidth: '400px' }}>

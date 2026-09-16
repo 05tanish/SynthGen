@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Brain, Activity, Upload, Database, LayoutTemplate, Settings, Key, BarChart } from 'lucide-react';
+import { Activity, Upload, Database, LayoutTemplate, Settings, Key, BarChart } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
@@ -19,10 +19,8 @@ export const Sidebar: React.FC = () => {
       top: 0,
     }}>
       <Link to="/app/dashboard" className="flex items-center gap-2 mb-8 px-2" style={{ textDecoration: 'none' }}>
-        <div style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)', padding: '0.25rem', borderRadius: '6px' }}>
-          <Brain size={20} />
-        </div>
-        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Synthetix</span>
+        <img src="/logo.svg" alt="SynthGen" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1.1rem' }}>SynthGen</span>
       </Link>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', flex: 1 }}>
