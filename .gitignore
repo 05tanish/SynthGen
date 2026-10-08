@@ -51,6 +51,7 @@ uploads/
 !**/example*.csv
 !vercel.json
 !**/vercel.json
+!railway.json
 
 # Logs
 *.log
