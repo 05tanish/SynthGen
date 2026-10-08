@@ -1,6 +1,6 @@
 import os
 import tempfile
-import pandas as pd
+
 from app.graph.state import GraphState
 from app.agents.generation_planner_agent import GenerationPlannerAgent
 from app.agents.requirement_schema_agent import RequirementSchemaAgent
@@ -59,6 +59,7 @@ def generate_data_node(state: GraphState) -> GraphState:
     real_data_path = state.get("real_data_path")
     if not real_data_path or not os.path.exists(real_data_path):
         raise ValueError(f"real_data_path is missing or invalid: {real_data_path}")
+    import pandas as pd
     real_df = pd.read_csv(real_data_path)
 
     if model_name == "GaussianCopula":
@@ -116,6 +117,7 @@ def evaluate_data_node(state: GraphState) -> GraphState:
     if not synth_data_path or not os.path.exists(synth_data_path):
         raise ValueError(f"synthetic_data_path is invalid: {synth_data_path}")
 
+    import pandas as pd
     real_df = pd.read_csv(real_data_path)
     synth_df = pd.read_csv(synth_data_path)
 

@@ -1,4 +1,3 @@
-import pandas as pd
 from typing import Dict, Any, Tuple
 from sqlalchemy import create_engine
 from pydantic import BaseModel
@@ -16,6 +15,7 @@ class LoadedDataset(BaseModel):
 
 def load_from_file(file_path: str) -> LoadedDataset:
     """Load dataset from a file (CSV, Excel, JSON, Parquet)"""
+    import pandas as pd
     ext = os.path.splitext(file_path)[1].lower()
     filename = os.path.basename(file_path)
     
@@ -44,6 +44,7 @@ def load_from_file(file_path: str) -> LoadedDataset:
 
 def load_from_database(db_url: str, table_name: str, query: str = None) -> LoadedDataset:
     """Load dataset from SQLite, PostgreSQL, or MySQL"""
+    import pandas as pd
     engine = create_engine(db_url)
     
     if query:

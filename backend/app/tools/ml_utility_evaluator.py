@@ -1,18 +1,19 @@
-import pandas as pd
-import numpy as np
 from typing import Dict, Any
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import f1_score, r2_score
-from sklearn.preprocessing import LabelEncoder
 
 
-def evaluate_ml_utility(real_data: pd.DataFrame, synthetic_data: pd.DataFrame) -> Dict[str, Any]:
+def evaluate_ml_utility(real_data, synthetic_data) -> Dict[str, Any]:
     """
     Evaluates ML utility by training models on real vs synthetic data
     and testing both on a holdout real test set.
     Score of 1.0 means synthetic data is as useful as real data for training.
     """
+    import pandas as pd
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.metrics import f1_score, r2_score
+    from sklearn.preprocessing import LabelEncoder
+
     if len(real_data.columns) < 2:
         return {"score": 1.0, "details": {"message": "Not enough columns for ML utility evaluation"}}
 

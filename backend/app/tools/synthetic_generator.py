@@ -1,10 +1,8 @@
 import re
 from abc import ABC, abstractmethod
-import pandas as pd
 from typing import Dict, Any, Optional
-from sdv.metadata import SingleTableMetadata
-from sdv.single_table import GaussianCopulaSynthesizer, CTGANSynthesizer, TVAESynthesizer
 from app.core.logging import logger
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Whitelisted parameters per synthesizer (based on actual SDV constructor sigs)
@@ -126,15 +124,17 @@ def parse_row_count_from_prompt(requirement: Optional[str]) -> Optional[int]:
 
 class BaseSyntheticGenerator(ABC):
     def __init__(self, parameters: Optional[Dict[str, Any]] = None):
+        # Lazy-import SDV so it doesn't load ~400MB at server startup
+        from sdv.metadata import SingleTableMetadata
         self.metadata = SingleTableMetadata()
         self.parameters = parameters or {}
         self.model = None
 
     @abstractmethod
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: "pd.DataFrame"):
         pass
 
-    def generate(self, num_rows: int) -> pd.DataFrame:
+    def generate(self, num_rows: int) -> "pd.DataFrame":
         if not self.model:
             raise ValueError("Model is not fitted yet.")
         return self.model.sample(num_rows=num_rows)
@@ -149,18 +149,21 @@ class BaseSyntheticGenerator(ABC):
 
 
 class GaussianCopulaGenerator(BaseSyntheticGenerator):
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: "pd.DataFrame"):
+        from sdv.single_table import GaussianCopulaSynthesizer
         self.metadata.detect_from_dataframe(data)
         safe = _sanitize_params(self.parameters, _GAUSSIAN_VALID_PARAMS, "GaussianCopula")
         self.model = GaussianCopulaSynthesizer(self.metadata, **safe)
         self.model.fit(data)
 
     def load_model(self, path: str):
+        from sdv.single_table import GaussianCopulaSynthesizer
         self.model = GaussianCopulaSynthesizer.load(filepath=path)
 
 
 class CTGANGenerator(BaseSyntheticGenerator):
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: "pd.DataFrame"):
+        from sdv.single_table import CTGANSynthesizer
         self.metadata.detect_from_dataframe(data)
         # 1. Drop LLM-hallucinated keys
         safe = _sanitize_params(self.parameters, _CTGAN_VALID_PARAMS, "CTGAN")
@@ -171,11 +174,13 @@ class CTGANGenerator(BaseSyntheticGenerator):
         self.model.fit(data)
 
     def load_model(self, path: str):
+        from sdv.single_table import CTGANSynthesizer
         self.model = CTGANSynthesizer.load(filepath=path)
 
 
 class TVAEGenerator(BaseSyntheticGenerator):
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: "pd.DataFrame"):
+        from sdv.single_table import TVAESynthesizer
         self.metadata.detect_from_dataframe(data)
         # Drop LLM-hallucinated keys
         safe = _sanitize_params(self.parameters, _TVAE_VALID_PARAMS, "TVAE")
@@ -184,9 +189,11 @@ class TVAEGenerator(BaseSyntheticGenerator):
         if batch_size % 2 != 0:
             batch_size -= 1
         safe["batch_size"] = max(2, batch_size)
-        
+
         self.model = TVAESynthesizer(self.metadata, **safe)
         self.model.fit(data)
 
     def load_model(self, path: str):
+        from sdv.single_table import TVAESynthesizer
         self.model = TVAESynthesizer.load(filepath=path)
+

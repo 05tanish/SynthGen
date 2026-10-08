@@ -1,14 +1,16 @@
-import pandas as pd
-import numpy as np
 from typing import Dict, Any
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
 
-def evaluate_privacy_risk(real_data: pd.DataFrame, synthetic_data: pd.DataFrame) -> Dict[str, Any]:
+
+def evaluate_privacy_risk(real_data, synthetic_data) -> Dict[str, Any]:
     """
     Evaluates privacy risks by checking for exact duplicates and nearest-neighbor distances.
     Score is 1.0 (perfect privacy / no memorization) to 0.0 (high memorization).
     """
+    import pandas as pd
+    import numpy as np
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.preprocessing import StandardScaler
+
     # 1. Exact Duplicate Checking
     # Ensure columns match
     common_cols = list(set(real_data.columns).intersection(synthetic_data.columns))

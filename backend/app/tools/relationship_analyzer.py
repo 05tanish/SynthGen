@@ -1,11 +1,11 @@
-import pandas as pd
 from typing import Dict, Any, List
 
-def analyze_relationships(df: pd.DataFrame) -> Dict[str, Any]:
+def analyze_relationships(df) -> Dict[str, Any]:
     """
     Analyzes relationships between columns in the dataset.
     Primarily calculates Pearson correlation for numerical columns.
     """
+    import pandas as pd
     relationships = {
         "correlations": [],
         "matrix": {}

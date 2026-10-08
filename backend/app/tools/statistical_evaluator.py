@@ -1,15 +1,18 @@
-import pandas as pd
-from scipy.stats import ks_2samp
-import numpy as np
 from typing import Dict, Any
 
-def evaluate_statistical_quality(real_data: pd.DataFrame, synthetic_data: pd.DataFrame) -> Dict[str, Any]:
+
+def evaluate_statistical_quality(real_data, synthetic_data) -> Dict[str, Any]:
     """
     Evaluates statistical similarity between real and synthetic data.
     Returns a score between 0 and 1, plus column-level metrics.
     """
+    import pandas as pd
+    import numpy as np
+    from scipy.stats import ks_2samp
+
     score_components = []
     details = {}
+
     
     for col in real_data.columns:
         if col not in synthetic_data.columns:

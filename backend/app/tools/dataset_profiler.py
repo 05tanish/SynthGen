@@ -1,12 +1,12 @@
-import pandas as pd
-import numpy as np
 from typing import Dict, Any
 
-def profile_dataset(df: pd.DataFrame) -> Dict[str, Any]:
+
+def profile_dataset(df) -> Dict[str, Any]:
     """
     Deterministically profiles a pandas DataFrame.
     Calculates statistics for numerical, categorical, and datetime columns.
     """
+    import pandas as pd
     total_rows = len(df)
     
     profile = {
