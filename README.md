@@ -197,6 +197,7 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ## 📚 API Documentation
 
+
 ### Authentication
 
 All endpoints (except `/health` and `/auth/*`) require JWT authentication:
