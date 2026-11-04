@@ -15,9 +15,14 @@ def get_usage(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     job_count = db.query(func.count(Job.id)).filter(Job.user_id == current_user.id).scalar()
     total_rows = db.query(func.sum(Dataset.row_count)).filter(Dataset.user_id == current_user.id).scalar() or 0
     
+    # Get cache statistics
+    from app.cache.cache_service import CacheService
+    cache_stats = CacheService.get_cache_stats()
+    
     return {
         "datasets_created": dataset_count,
         "api_requests": job_count,
         "rows_generated": total_rows,
-        "storage_used_mb": dataset_count * 2.5 # Mock storage
+        "storage_used_mb": dataset_count * 2.5,  # Mock storage
+        "cache": cache_stats
     }
