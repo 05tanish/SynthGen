@@ -5,7 +5,7 @@ import { API_BASE } from '../lib/api';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
-import { Download, Eye, RefreshCw, CheckCircle2, Clock, XCircle, Database } from 'lucide-react';
+import { Download, Eye, RefreshCw, CheckCircle2, Clock, XCircle, Database, Trash2 } from 'lucide-react';
 
 interface Dataset {
   id: number;
@@ -43,6 +43,7 @@ const History: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const navigate = useNavigate();
 
   const fetchHistory = async () => {
@@ -98,6 +99,42 @@ const History: React.FC = () => {
       alert('Unable to download dataset. Please try again.');
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handleDelete = async (datasetId: number) => {
+    const dataset = datasets.find(d => d.id === datasetId);
+    const job = jobMap[datasetId];
+    
+    // Check if there's an active job
+    if (job && (job.status === 'running' || job.status === 'pending')) {
+      alert('Cannot delete dataset with active generation. Please cancel or wait for the job to complete first.');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete "${dataset?.name || 'this dataset'}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingId(datasetId);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_BASE}/api/datasets/${datasetId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      // Remove from local state
+      setDatasets(prev => prev.filter(d => d.id !== datasetId));
+      setJobMap(prev => {
+        const newMap = { ...prev };
+        delete newMap[datasetId];
+        return newMap;
+      });
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || 'Unable to delete dataset. Please try again.';
+      alert(errorMsg);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -168,6 +205,8 @@ const History: React.FC = () => {
                   const job = jobMap[d.id];
                   const canDownload = job?.status === 'completed';
                   const isDownloading = downloadingId === d.id;
+                  const isDeleting = deletingId === d.id;
+                  const hasActiveJob = job && (job.status === 'running' || job.status === 'pending');
                   return (
                     <tr key={d.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background-color 0.1s' }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
@@ -220,6 +259,16 @@ const History: React.FC = () => {
                             style={{ padding: '0.375rem', opacity: canDownload ? 1 : 0.4 }}
                           >
                             {isDownloading ? <Spinner size="sm" /> : <Download size={15} />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(d.id)}
+                            disabled={isDeleting || hasActiveJob}
+                            title={hasActiveJob ? 'Cannot delete dataset with active job' : 'Delete dataset'}
+                            style={{ padding: '0.375rem', opacity: (isDeleting || hasActiveJob) ? 0.4 : 1, color: 'var(--error-color)' }}
+                          >
+                            {isDeleting ? <Spinner size="sm" /> : <Trash2 size={15} />}
                           </Button>
                         </div>
                       </td>

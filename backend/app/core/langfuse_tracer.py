@@ -32,6 +32,31 @@ _langfuse_client = None
 _langfuse_available = False
 
 
+# No-op classes for when Langfuse is unavailable
+class NoOpTrace:
+    """Dummy trace object when Langfuse is unavailable"""
+    def update(self, **kwargs):
+        pass
+    def span(self, *args, **kwargs):
+        return NoOpSpan()
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        pass
+
+
+class NoOpSpan:
+    """Dummy span object when Langfuse is unavailable"""
+    def update(self, **kwargs):
+        pass
+    def end(self, **kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        pass
+
+
 def _init_langfuse():
     """Initialize Langfuse client (lazy loading)"""
     global _langfuse_client, _langfuse_available
@@ -128,6 +153,7 @@ def get_langfuse_handler(
 
 
 @contextmanager
+@contextmanager
 def trace_generation_job(
     job_id: int,
     dataset_id: int,
@@ -151,16 +177,6 @@ def trace_generation_job(
     client = _init_langfuse()
     if not client:
         # Return a no-op context manager if Langfuse unavailable
-        class NoOpTrace:
-            def update(self, **kwargs):
-                pass
-            def span(self, *args, **kwargs):
-                return self
-            def __enter__(self):
-                return self
-            def __exit__(self, *args):
-                pass
-        
         yield NoOpTrace()
         return
     
@@ -201,18 +217,9 @@ def trace_agent_execution(
         parent_trace: Parent trace to attach this span to
     
     Returns:
-        Span object or NoOpTrace if Langfuse unavailable
+        Span object or NoOpSpan if Langfuse unavailable
     """
     if not parent_trace or not is_langfuse_available():
-        class NoOpSpan:
-            def update(self, **kwargs):
-                pass
-            def end(self, **kwargs):
-                pass
-            def __enter__(self):
-                return self
-            def __exit__(self, *args):
-                pass
         return NoOpSpan()
     
     try:
@@ -224,15 +231,6 @@ def trace_agent_execution(
         return span
     except Exception as e:
         logger.error(f"Error creating agent span: {e}")
-        class NoOpSpan:
-            def update(self, **kwargs):
-                pass
-            def end(self, **kwargs):
-                pass
-            def __enter__(self):
-                return self
-            def __exit__(self, *args):
-                pass
         return NoOpSpan()
 
 

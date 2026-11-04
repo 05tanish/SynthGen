@@ -37,6 +37,7 @@ const DatasetDetail: React.FC = () => {
   const [job, setJob] = useState<JobInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -108,6 +109,33 @@ const DatasetDetail: React.FC = () => {
     }
   };
 
+  const handleDelete = async () => {
+    // Check if there's an active job
+    if (job && (job.status === 'running' || job.status === 'pending')) {
+      alert('Cannot delete dataset with active generation. Please cancel or wait for the job to complete first.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete "${dataset?.name || 'this dataset'}"? This action cannot be undone and will delete all associated data.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_BASE}/api/datasets/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      // Navigate back to history after successful deletion
+      navigate('/app/history');
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || 'Unable to delete dataset. Please try again.';
+      alert(errorMsg);
+      setIsDeleting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -157,15 +185,26 @@ const DatasetDetail: React.FC = () => {
             Created {new Date(dataset.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
-        <Button
-          onClick={handleDownload}
-          disabled={!canDownload || isDownloading}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: canDownload ? 1 : 0.5 }}
-          title={canDownload ? 'Download CSV' : 'Dataset not ready for download'}
-        >
-          {isDownloading ? <Spinner size="sm" /> : <Download size={16} />}
-          {isDownloading ? 'Downloading...' : 'Download CSV'}
-        </Button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button
+            onClick={handleDownload}
+            disabled={!canDownload || isDownloading}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: canDownload ? 1 : 0.5 }}
+            title={canDownload ? 'Download CSV' : 'Dataset not ready for download'}
+          >
+            {isDownloading ? <Spinner size="sm" /> : <Download size={16} />}
+            {isDownloading ? 'Downloading...' : 'Download CSV'}
+          </Button>
+          <Button
+            onClick={handleDelete}
+            variant="secondary"
+            disabled={isDeleting || (job?.status === 'running' || job?.status === 'pending')}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error-color)' }}
+            title={job?.status === 'running' || job?.status === 'pending' ? 'Cannot delete with active job' : 'Delete dataset'}
+          >
+            {isDeleting ? <Spinner size="sm" /> : 'Delete'}
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
