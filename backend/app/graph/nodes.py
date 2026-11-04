@@ -128,6 +128,19 @@ def generate_data_node(state: GraphState) -> GraphState:
         logger.info(f"Sample created: {len(fit_df)} rows (original: {original_row_count} rows)")
         logger.info(f"Expected speedup: ~{original_row_count / sample_size:.1f}x faster model fitting")
 
+    # ── Production safety override ───────────────────────────────────────────
+    # CTGAN/TVAE require 10-25 min of CPU-bound PyTorch training.
+    # On Railway (shared CPU, ~512MB-1GB RAM) this causes OOM kills or timeouts.
+    # Force GaussianCopula unless ALLOW_SLOW_MODELS=true is explicitly set.
+    import os as _os
+    if model_name in ("CTGAN", "TVAE") and _os.getenv("ALLOW_SLOW_MODELS", "false").lower() != "true":
+        logger.warning(
+            f"Model '{model_name}' selected by planner but overridden to GaussianCopula. "
+            f"Set ALLOW_SLOW_MODELS=true to enable CTGAN/TVAE (requires high-memory server)."
+        )
+        model_name = "GaussianCopula"
+        params = {}
+
     if model_name == "GaussianCopula":
         generator = GaussianCopulaGenerator(parameters=params)
     elif model_name == "CTGAN":

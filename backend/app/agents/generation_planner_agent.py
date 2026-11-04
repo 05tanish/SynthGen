@@ -69,7 +69,7 @@ class GenerationPlannerAgent:
         except Exception as e:
             logger.error(f"Failed to generate plan: {e}. Falling back to default plan.")
             return GenerationPlan(
-                selected_model="CTGAN",
-                reasoning="Fallback plan due to API rate limit or error.",
-                parameters={"epochs": 50, "batch_size": 100}
+                selected_model="GaussianCopula",
+                reasoning="Fallback plan due to API rate limit or error. GaussianCopula is fast and reliable.",
+                parameters={}
             )
