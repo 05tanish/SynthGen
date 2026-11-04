@@ -17,6 +17,9 @@ langchain-groq>=0.2.0,<1.0.0
 langchain-community>=0.3.0,<1.0.0
 langchain-core>=0.3.0,<1.0.0
 
+# LLM Observability
+langfuse>=2.0.0
+
 # Data Processing
 pandas==2.2.1
 numpy>=1.24.0,<2.0.0
@@ -54,3 +57,9 @@ aiohttp>=3.9.0
 python-dateutil>=2.8.2
 python-dotenv>=1.0.0
 Faker>=40.0.0
+
+# Cloud Storage
+cloudinary>=1.36.0
+
+# Redis (supports both standard and Upstash HTTP REST API)
+upstash-redis>=1.0.0
