@@ -123,3 +123,4 @@ celerybeat.pid
 # Backup files
 *.bak
 *.backup
+/docs
