@@ -12,8 +12,12 @@ RELATIONSHIPS_CONTEXT_LIMIT = 1000
 REQUIREMENT_ANALYSIS_LIMIT = 500
 
 class GenerationPlannerAgent:
-    def __init__(self):
-        self.llm = LLMProvider.get_structured_llm(schema=GenerationPlan, temperature=0.1)
+    def __init__(self, langfuse_handler=None):
+        self.llm = LLMProvider.get_structured_llm(
+            schema=GenerationPlan, 
+            temperature=0.1,
+            callbacks=[langfuse_handler] if langfuse_handler else None
+        )
 
     def plan(
         self,
