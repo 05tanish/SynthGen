@@ -16,25 +16,32 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "openai/gpt-oss-20b"
     
+    # Langfuse Observability (optional)
+    LANGFUSE_SECRET_KEY: Optional[str] = None
+    LANGFUSE_PUBLIC_KEY: Optional[str] = None
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"  # or self-hosted URL
+    LANGFUSE_ENABLED: bool = True  # Set to False to disable
+    
     # Generator Settings
     MAX_ITERATIONS: int = 5
     QUALITY_THRESHOLD: float = 0.65
+    MAX_CONCURRENT_JOBS: int = 2  # Limit simultaneous SDV model training
     
     # Other settings
     FILE_STORAGE_PATH: str = "./storage"
     MAX_UPLOAD_SIZE_MB: int = 50
     RESEND_API_KEY: Optional[str] = None
     
-    # Cloudinary (file storage)
-    CLOUDINARY_CLOUD_NAME: str = "placeholder_cloud_name"
-    CLOUDINARY_API_KEY: str = "placeholder_cloudinary_api_key"
-    CLOUDINARY_API_SECRET: str = "placeholder_cloudinary_api_secret"
+    # Cloudinary (file storage) - REQUIRED
+    CLOUDINARY_CLOUD_NAME: str
+    CLOUDINARY_API_KEY: str
+    CLOUDINARY_API_SECRET: str
     
-    # Auth
-    SECRET_KEY: str = "agentic-ai-super-secret-key-change-in-prod"
+    # Auth - REQUIRED
+    SECRET_KEY: str  # No default - must be set in .env for security
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
-    GOOGLE_CLIENT_ID: str = "placeholder_google_client_id"
+    GOOGLE_CLIENT_ID: str  # No default - must be set in .env
     
     # Frontend URL for CORS
     FRONTEND_URL: Optional[str] = None
