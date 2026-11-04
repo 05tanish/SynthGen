@@ -44,7 +44,7 @@ const Generate: React.FC = () => {
           setJobDone(true);
           clearInterval(interval);
           if (status === 'failed') {
-            setError(res.data.error_message || 'Generation failed. Please try again.');
+          setError(res.data.error_message || 'Generation failed. Please try generating again.');
             setIsGenerating(false);
           }
         }
@@ -105,8 +105,8 @@ const Generate: React.FC = () => {
       setJobId(newJobId);
       setJobStep('queued');
     } catch (err: any) {
-      const detail = err.response?.data?.detail;
-      setError(detail || 'Failed to start generation. Please try again.');
+      const detail = err.response?.data?.detail || 'Unable to start generation. Please try again.';
+      setError(detail);
       setIsGenerating(false);
     }
   };

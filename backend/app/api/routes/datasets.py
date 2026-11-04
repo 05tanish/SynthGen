@@ -108,14 +108,14 @@ async def upload_dataset(
             logger.error(f"Cloudinary configuration error: {ve}")
             raise HTTPException(
                 status_code=500,
-                detail="File storage service is not configured. Please contact support or check CLOUDINARY credentials in environment variables."
+                detail="File storage service is temporarily unavailable. Please try again later."
             )
         except Exception as e:
             # Cloudinary upload failed (network, quota, auth, etc.)
             logger.error(f"Cloudinary upload failed: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
-                detail=f"File upload failed: {str(e)}. The storage service may be unavailable or over quota. Please try again later."
+                detail="File upload failed. Please try again later."
             )
 
         db_dataset = Dataset(
@@ -181,7 +181,7 @@ async def generate_from_prompt(
             logger.error(f"Failed to initialize SeedGeneratorAgent: {e}")
             raise HTTPException(
                 status_code=500,
-                detail="AI service is not properly configured. Please check LLM_API_KEY environment variable."
+                detail="AI service is temporarily unavailable. Please try again in a moment."
             )
         
         logger.info("Generating seed CSV from prompt...")
@@ -433,7 +433,7 @@ def delete_dataset(dataset_id: int, db: Session = Depends(get_db), current_user:
         job_ids = [job.id for job in active_jobs]
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot delete dataset with active jobs (IDs: {job_ids}). Please cancel or wait for jobs to complete first."
+            detail="Cannot delete dataset with active generation jobs. Please cancel or wait for jobs to complete first."
         )
     
     # Get all jobs for cleanup

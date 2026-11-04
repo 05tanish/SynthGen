@@ -102,7 +102,7 @@ const DatasetDetail: React.FC = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch {
-      alert('Download failed. The file may not be ready yet.');
+      alert('Unable to download file. Please try again or contact support if the issue persists.');
     } finally {
       setIsDownloading(false);
     }
@@ -203,7 +203,7 @@ const DatasetDetail: React.FC = () => {
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--error-color)', fontSize: '0.875rem' }}>
                 <XCircle size={18} />
-                Generation failed: {job.error_message || 'Unknown error'}
+                Generation failed: {job.error_message || 'An error occurred. Please try generating again.'}
               </div>
             )}
           </CardContent>

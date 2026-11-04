@@ -19,7 +19,7 @@ def get_current_user(
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
+                detail="Session expired. Please log in again.",
             )
     except JWTError:
         raise HTTPException(
@@ -29,5 +29,5 @@ def get_current_user(
         
     user = db.query(User).filter(User.id == int(user_id)).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User account not found. Please register again.")
     return user

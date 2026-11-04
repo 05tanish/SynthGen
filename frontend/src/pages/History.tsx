@@ -95,7 +95,7 @@ const History: React.FC = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch {
-      alert('Failed to download dataset. The file may not be ready yet.');
+      alert('Unable to download dataset. Please try again.');
     } finally {
       setDownloadingId(null);
     }

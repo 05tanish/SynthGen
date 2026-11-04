@@ -79,8 +79,8 @@ const Dashboard: React.FC = () => {
         
         setError(''); // Clear any previous errors
       } catch (err: any) {
-        console.error('Failed to load dashboard data:', err);
-        const errorMsg = err.response?.data?.detail || err.message || 'Failed to load dashboard data';
+        console.error('Unable to load dashboard:', err);
+        const errorMsg = err.response?.data?.detail || 'Unable to load dashboard. Please refresh the page.';
         setError(errorMsg);
       } finally {
         setIsLoading(false);
@@ -264,7 +264,7 @@ const GenerationRow: React.FC<{
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch {
-      alert('Failed to download dataset.');
+      alert('Unable to download dataset. Please try again.');
     }
   };
   

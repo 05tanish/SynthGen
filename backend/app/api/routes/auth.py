@@ -47,16 +47,16 @@ def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
         )
     except ValueError as e:
         logger.warning(f"Invalid Google token: {e}")
-        raise HTTPException(status_code=401, detail="Invalid or expired Google token.")
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token. Please log in again.")
 
     email = idinfo.get("email")
     name = idinfo.get("name")
     email_verified = idinfo.get("email_verified", False)
 
     if not email:
-        raise HTTPException(status_code=400, detail="Google token did not contain an email address.")
+        raise HTTPException(status_code=400, detail="Email address not found in authentication. Please try again.")
     if not email_verified:
-        raise HTTPException(status_code=400, detail="Google account email is not verified.")
+        raise HTTPException(status_code=400, detail="Email address is not verified. Please verify your email with your provider.")
 
     # Find existing user by email — works regardless of how they previously registered
     user = db.query(User).filter(User.email == email).first()

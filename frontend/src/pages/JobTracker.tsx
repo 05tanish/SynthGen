@@ -75,9 +75,10 @@ export default function JobTracker() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to download", err);
-      alert("Failed to download synthetic data");
+      const errorMsg = err.response?.data?.detail || "Unable to download file. Please try again.";
+      alert(errorMsg);
     }
   };
 
@@ -99,7 +100,8 @@ export default function JobTracker() {
       setJob(res.data);
     } catch (err: any) {
       console.error("Failed to cancel job", err);
-      alert(err.response?.data?.detail || "Failed to cancel job");
+      const errorMsg = err.response?.data?.detail || "Unable to cancel generation. Please try again.";
+      alert(errorMsg);
     } finally {
       setCancelling(false);
     }
@@ -203,7 +205,7 @@ export default function JobTracker() {
 
           {isFailed && (
             <div style={{ padding: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)', borderRadius: 'var(--radius-md)' }}>
-              <strong>Error:</strong> {job.error_message || 'Unknown error occurred'}
+              <strong>Generation Failed:</strong> {job.error_message || 'An error occurred during generation. Please try again.'}
             </div>
           )}
           

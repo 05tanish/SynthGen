@@ -84,7 +84,8 @@ const Profile: React.FC = () => {
       setPwdMsg('Password changed successfully.');
       setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
     } catch (err: any) {
-      setPwdMsg(err.response?.data?.detail || 'Failed to change password.');
+      const errorMsg = err.response?.data?.detail || 'Unable to change password. Please try again.';
+      setPwdMsg(errorMsg);
     } finally {
       setIsChangingPwd(false);
     }

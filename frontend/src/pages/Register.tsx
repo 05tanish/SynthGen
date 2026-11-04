@@ -22,7 +22,8 @@ const Register: React.FC = () => {
       login(res.data.access_token);
       navigate('/app/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Google Sign-up failed. Please try again.');
+      const errorMsg = err.response?.data?.detail || 'Unable to authenticate. Please try again.';
+      setError(errorMsg);
     } finally {
       setIsLoading(false);
     }

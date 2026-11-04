@@ -65,11 +65,11 @@ async def download_synthetic_data(job_id: int, db: Session = Depends(get_db), cu
                     }
                 )
             except httpx.HTTPError as e:
-                raise HTTPException(status_code=500, detail=f"Failed to fetch file from storage: {str(e)}")
+                raise HTTPException(status_code=500, detail="Failed to download file. Please try again later.")
     else:
         # It's a local file path (legacy support)
         if not os.path.exists(job.synthetic_file_path):
-            raise HTTPException(status_code=404, detail="Synthetic file not found on disk")
+            raise HTTPException(status_code=404, detail="Generated file is not available. Please generate again.")
         
         return FileResponse(
             path=job.synthetic_file_path,
@@ -89,7 +89,7 @@ def get_job_by_dataset(dataset_id: int, db: Session = Depends(get_db), current_u
         .first()
     )
     if not job:
-        raise HTTPException(status_code=404, detail="No job found for this dataset")
+        raise HTTPException(status_code=404, detail="Generation job not found for this dataset")
     return {
         "id": job.id,
         "dataset_id": job.dataset_id,
