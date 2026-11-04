@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, Upload, Database, LayoutTemplate, Settings, Key, BarChart } from 'lucide-react';
+import { Activity, Upload, Database, LayoutTemplate, Settings, BarChart } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
@@ -41,9 +41,8 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <div>
-          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.75rem', paddingLeft: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>API & Usage</div>
+          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.75rem', paddingLeft: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Analytics</div>
           <nav className="flex flex-col gap-1">
-            <SidebarItem icon={<Key size={18} />} label="API Keys" to="/app/api-keys" active={path.startsWith('/app/api-keys')} />
             <SidebarItem icon={<BarChart size={18} />} label="Usage" to="/app/usage" active={path.startsWith('/app/usage')} />
           </nav>
         </div>

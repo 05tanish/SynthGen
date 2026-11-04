@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Lock, Key, LogOut } from 'lucide-react';
+import { User, Lock, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -45,7 +45,7 @@ const Feedback: React.FC<{ msg: string }> = ({ msg }) => {
 // ─── Profile Page ─────────────────────────────────────────────────────────────
 const Profile: React.FC = () => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'api'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'security'>('profile');
 
   // Profile form
   const [name, setName] = useState(user?.name || '');
@@ -102,7 +102,6 @@ const Profile: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: '180px', flexShrink: 0 }}>
           <TabButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<User size={16} />} label="Account" />
           <TabButton active={activeTab === 'security'} onClick={() => setActiveTab('security')} icon={<Lock size={16} />} label="Security" />
-          <TabButton active={activeTab === 'api'} onClick={() => setActiveTab('api')} icon={<Key size={16} />} label="API Access" />
           <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '0.5rem 0' }} />
           <button
             onClick={logout}
@@ -195,38 +194,6 @@ const Profile: React.FC = () => {
                     <Button type="submit" isLoading={isChangingPwd}>Update Password</Button>
                   </div>
                 </form>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* ── API Access ── */}
-          {activeTab === 'api' && (
-            <Card>
-              <CardContent style={{ padding: '3rem 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '1rem' }}>
-                <div style={{
-                  width: '56px', height: '56px', borderRadius: 'var(--radius-lg)',
-                  backgroundColor: 'var(--bg-secondary)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem',
-                }}>
-                  <Key size={24} color="var(--text-primary)" />
-                </div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  API Access
-                </h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem', maxWidth: '380px', lineHeight: 1.6 }}>
-                  Programmatically generate synthetic datasets using the SynthGen REST API.
-                </p>
-                <div style={{
-                  padding: '0.5rem 1.25rem', borderRadius: '999px',
-                  border: '1px solid var(--border-strong)',
-                  fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-muted)',
-                  letterSpacing: '0.04em', textTransform: 'uppercase',
-                }}>
-                  Coming Soon
-                </div>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', maxWidth: '360px' }}>
-                  API key management and programmatic access will be available in a future release.
-                </p>
               </CardContent>
             </Card>
           )}
