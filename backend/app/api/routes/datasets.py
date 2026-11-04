@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks, Form
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
 from fastapi.concurrency import run_in_threadpool
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -388,7 +388,6 @@ def get_dataset_relationships(dataset_id: int, db: Session = Depends(get_db), cu
 @router.post("/{dataset_id}/generate")
 def generate_synthetic_data(
     dataset_id: int,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -411,7 +410,11 @@ def generate_synthetic_data(
 
         logger.info(f"Creating job for dataset {dataset_id} (name: {dataset.name})")
         
-        # Create Job (progress_percent column not included - backward compatible)
+        # Create Job with PENDING status — the polling worker thread (run_worker_thread
+        # in main.py) will pick this up within 5 seconds and execute it.
+        # We intentionally do NOT use BackgroundTasks here: Railway's proxy layer
+        # kills background tasks when the HTTP connection closes (30-60s), which would
+        # silently abort multi-minute generation jobs mid-run.
         job = Job(
             dataset_id=dataset.id,
             status=JobStatus.PENDING,
@@ -422,13 +425,7 @@ def generate_synthetic_data(
         db.commit()
         db.refresh(job)
         
-        logger.info(f"✓ Job {job.id} created successfully")
-        logger.info(f"🔄 Adding job {job.id} to background tasks queue...")
-
-        # Enqueue background task
-        background_tasks.add_task(run_generation_job, job.id)
-        
-        logger.info(f"✓ Job {job.id} added to background queue")
+        logger.info(f"✓ Job {job.id} created with PENDING status — worker will pick it up")
         logger.info("=" * 80)
 
         return {"message": "Generation job started", "job_id": job.id}

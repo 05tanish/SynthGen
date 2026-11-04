@@ -15,7 +15,8 @@ class LLMProvider:
             llm = ChatGroq(
                 temperature=temperature,
                 model_name=settings.LLM_MODEL,
-                api_key=settings.LLM_API_KEY
+                api_key=settings.LLM_API_KEY,
+                request_timeout=60,  # 60s hard timeout — prevents hung Groq calls blocking the worker
             )
             
             # Add Langfuse callback if available

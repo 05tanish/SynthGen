@@ -139,7 +139,20 @@ def generate_data_node(state: GraphState) -> GraphState:
         generator = GaussianCopulaGenerator(parameters={})
 
     logger.info(f"Fitting {model_name} on {len(fit_df)} rows...")
-    generator.fit(fit_df)
+    # Run the fit in a thread with a hard timeout.
+    # CTGAN/TVAE training is CPU-bound and can run 15+ minutes on large datasets.
+    # Without a timeout the worker thread blocks forever and Railway kills the container.
+    import concurrent.futures
+    FIT_TIMEOUT_SECONDS = 600  # 10 minutes max per fit attempt
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(generator.fit, fit_df)
+        try:
+            future.result(timeout=FIT_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            raise RuntimeError(
+                f"{model_name} model fitting exceeded {FIT_TIMEOUT_SECONDS}s timeout. "
+                f"Try reducing MAX_ITERATIONS or dataset size."
+            )
 
     # Priority order for row count:
     # 1. User's natural-language prompt (e.g. "generate 500 rows")
