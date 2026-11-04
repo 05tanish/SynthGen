@@ -21,6 +21,7 @@ def get_job_status(job_id: int, db: Session = Depends(get_db), current_user: Use
         "dataset_id": job.dataset_id,
         "status": job.status,
         "current_step": job.current_step,
+        "progress_percent": job.progress_percent if hasattr(job, 'progress_percent') else 0,
         "error_message": job.error_message,
         "evaluation_report": job.evaluation_report_json,
         "created_at": job.created_at,
@@ -98,4 +99,42 @@ def get_job_by_dataset(dataset_id: int, db: Session = Depends(get_db), current_u
         "evaluation_report": job.evaluation_report_json,
         "created_at": job.created_at,
         "updated_at": job.updated_at,
+    }
+
+
+@router.post("/{job_id}/cancel")
+def cancel_job(job_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Cancel a running or pending generation job.
+    The job status will be set to CANCELLED, and the worker will detect this and stop processing.
+    """
+    from app.core.logging import logger
+    
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Can only cancel pending or running jobs
+    if job.status not in [JobStatus.PENDING, JobStatus.RUNNING]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel job with status '{job.status}'. Only pending or running jobs can be cancelled."
+        )
+    
+    # Update job status to cancelled
+    job.status = JobStatus.CANCELLED
+    job.current_step = "cancelled_by_user"
+    job.error_message = "Cancelled by user"
+    from datetime import datetime, timezone
+    job.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(job)
+    
+    logger.info(f"Job {job_id} cancelled by user {current_user.id}")
+    
+    return {
+        "status": "cancelled",
+        "message": "Job cancellation requested. The job will stop processing.",
+        "job_id": job.id
     }
