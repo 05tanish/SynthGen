@@ -132,6 +132,12 @@ async def upload_dataset(
         db.add(db_dataset)
         db.commit()
         db.refresh(db_dataset)
+        
+        # Cache profile and relationships for faster access
+        from app.cache.cache_service import CacheService
+        CacheService.set_dataset_profile(db_dataset.id, profile)
+        CacheService.set_dataset_relationships(db_dataset.id, relationships)
+        
         return db_dataset
 
     except HTTPException:
@@ -404,37 +410,89 @@ def generate_synthetic_data(
 
 @router.delete("/{dataset_id}")
 def delete_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Delete a dataset and all associated resources.
+    
+    Safety checks:
+    1. Cannot delete if there are running or pending jobs
+    2. Deletes all associated jobs (completed/failed)
+    3. Cleans up Cloudinary files
+    4. Transaction-safe deletion
+    """
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    # Check if there are any running jobs for this dataset
-    running_jobs = db.query(Job).filter(
+    # Check if there are any running or pending jobs for this dataset
+    active_jobs = db.query(Job).filter(
         Job.dataset_id == dataset.id,
         Job.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
-    ).count()
+    ).all()
     
-    if running_jobs > 0:
+    if active_jobs:
+        job_ids = [job.id for job in active_jobs]
         raise HTTPException(
-            status_code=409, 
-            detail="Cannot delete dataset with active jobs. Please wait for jobs to complete or cancel them first."
+            status_code=409,
+            detail=f"Cannot delete dataset with active jobs (IDs: {job_ids}). Please cancel or wait for jobs to complete first."
         )
     
-    # Delete all associated jobs first
-    db.query(Job).filter(Job.dataset_id == dataset.id).delete()
+    # Get all jobs for cleanup
+    all_jobs = db.query(Job).filter(Job.dataset_id == dataset.id).all()
+    
+    # Clean up Cloudinary files for all jobs (synthetic data)
+    for job in all_jobs:
+        if job.synthetic_file_path and job.synthetic_file_path.startswith("http"):
+            try:
+                # Extract public_id from Cloudinary URL
+                # Format: https://res.cloudinary.com/{cloud}/upload/{version}/{public_id}.{format}
+                parts = job.synthetic_file_path.split("/upload/")
+                if len(parts) >= 2:
+                    # Get everything after /upload/, then split by first dot to remove version and extension
+                    path_after_upload = parts[1]
+                    # Remove version number (v1234567890) if present
+                    if path_after_upload.startswith("v"):
+                        path_parts = path_after_upload.split("/", 1)
+                        if len(path_parts) == 2:
+                            path_after_upload = path_parts[1]
+                    # Remove extension
+                    public_id = path_after_upload.rsplit(".", 1)[0]
+                    cloud_storage.delete_file(public_id)
+                    logger.info(f"Deleted Cloudinary file for job {job.id}: {public_id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete Cloudinary file for job {job.id}: {e}")
     
     # Delete source file from Cloudinary if it's a URL
     if dataset.source_filename and dataset.source_filename.startswith("http"):
-        # public_id is embedded in the URL as "synthetix/uploads/<uuid>"
         try:
             parts = dataset.source_filename.split("/upload/")
-            if len(parts) == 2:
-                public_id = parts[1].split(".")[0]  # strip version/extension
+            if len(parts) >= 2:
+                path_after_upload = parts[1]
+                if path_after_upload.startswith("v"):
+                    path_parts = path_after_upload.split("/", 1)
+                    if len(path_parts) == 2:
+                        path_after_upload = path_parts[1]
+                public_id = path_after_upload.rsplit(".", 1)[0]
                 cloud_storage.delete_file(public_id)
+                logger.info(f"Deleted Cloudinary source file for dataset {dataset.id}: {public_id}")
         except Exception as e:
-            logger.warning(f"Failed to delete Cloudinary asset for dataset {dataset.id}: {e}")
+            logger.warning(f"Failed to delete Cloudinary source file for dataset {dataset.id}: {e}")
     
+    # Delete all associated jobs (CASCADE should handle this, but we're explicit for logging)
+    deleted_job_count = db.query(Job).filter(Job.dataset_id == dataset.id).delete()
+    logger.info(f"Deleted {deleted_job_count} jobs for dataset {dataset.id}")
+    
+    # Delete the dataset
     db.delete(dataset)
     db.commit()
     
-    return {"status": "deleted"}
+    # Invalidate cache for this dataset
+    from app.cache.cache_service import CacheService
+    CacheService.invalidate_dataset(dataset.id)
+    
+    logger.info(f"Successfully deleted dataset {dataset.id} and all associated resources")
+    
+    return {
+        "status": "deleted",
+        "dataset_id": dataset_id,
+        "jobs_deleted": deleted_job_count
+    }
