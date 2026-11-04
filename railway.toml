@@ -1,9 +1,0 @@
-[[services]]
-name = "api"
-source = "backend"
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
-
-[[services]]
-name = "worker"
-source = "backend"
-startCommand = "python run_worker.py"
