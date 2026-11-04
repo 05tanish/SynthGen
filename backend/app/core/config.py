@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # LLM
     LLM_PROVIDER: str = "groq"
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "llama-3.3-70b-versatile"
+    LLM_MODEL: str = "openai/gpt-oss-20b"
     
     # Langfuse Observability (optional)
     LANGFUSE_SECRET_KEY: Optional[str] = None
