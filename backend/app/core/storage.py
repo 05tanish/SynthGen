@@ -18,11 +18,8 @@ from app.core.logging import logger
 
 def _configure():
     """Configure Cloudinary with credentials from environment variables."""
-    # Validate credentials are set
-    if (settings.CLOUDINARY_API_KEY == "placeholder_cloudinary_api_key" or 
-        settings.CLOUDINARY_API_SECRET == "placeholder_cloudinary_api_secret" or
-        not settings.CLOUDINARY_CLOUD_NAME or
-        settings.CLOUDINARY_CLOUD_NAME == "placeholder_cloud_name"):
+    # Validate credentials are set (no longer checking for placeholder values)
+    if not settings.CLOUDINARY_CLOUD_NAME or not settings.CLOUDINARY_API_KEY or not settings.CLOUDINARY_API_SECRET:
         raise ValueError(
             "Cloudinary credentials not configured. Please set CLOUDINARY_CLOUD_NAME, "
             "CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables. "
