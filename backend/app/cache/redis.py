@@ -36,12 +36,33 @@ def get_redis_client() -> redis.Redis:
                 )
                 logger.info("Redis client initialized with standard Redis protocol")
             else:
-                # Fallback to localhost
-                _redis_client = redis.Redis(
-                    host="localhost", port=6379, decode_responses=True, socket_connect_timeout=5
-                )
-                logger.info("Redis client initialized with localhost fallback")
+                # No Redis configured — use a no-op stub so the app doesn't crash
+                logger.warning("UPSTASH_REDIS_URL not set — Redis is disabled. Caching will be skipped.")
+                _redis_client = _NoOpRedis()
         except Exception as e:
             logger.error(f"Failed to initialize Redis client: {e}")
             raise
     return _redis_client
+
+
+class _NoOpRedis:
+    """Stub Redis client used when no Redis URL is configured.
+    All operations silently succeed/return None so the app keeps running."""
+
+    def ping(self):
+        raise ConnectionError("Redis is not configured")
+
+    def get(self, *a, **kw):
+        return None
+
+    def set(self, *a, **kw):
+        return True
+
+    def setex(self, *a, **kw):
+        return True
+
+    def delete(self, *a, **kw):
+        return 0
+
+    def exists(self, *a, **kw):
+        return 0

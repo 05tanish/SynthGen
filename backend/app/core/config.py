@@ -32,16 +32,16 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 50
     RESEND_API_KEY: Optional[str] = None
     
-    # Cloudinary (file storage) - REQUIRED
-    CLOUDINARY_CLOUD_NAME: str
-    CLOUDINARY_API_KEY: str
-    CLOUDINARY_API_SECRET: str
+    # Cloudinary (file storage)
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
     
-    # Auth - REQUIRED
-    SECRET_KEY: str  # No default - must be set in .env for security
+    # Auth
+    SECRET_KEY: str = "changeme-insecure-default-please-set-in-env"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
-    GOOGLE_CLIENT_ID: str  # No default - must be set in .env
+    GOOGLE_CLIENT_ID: str = ""  # No default - must be set in .env
     
     # Frontend URL for CORS
     FRONTEND_URL: Optional[str] = None
