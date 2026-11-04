@@ -63,12 +63,13 @@ def upload_file(file_bytes: bytes, public_id: str, folder: str = "synthetix") ->
         logger.info(f"Uploaded to Cloudinary: {url}")
         return url
     except ValueError as ve:
-        # Credentials not configured
+        # Credentials not configured - re-raise as-is
         logger.error(f"Cloudinary configuration error: {ve}")
         raise
     except Exception as e:
+        # Upload failed - log full error but raise generic message
         logger.error(f"Cloudinary upload failed for {public_id}: {e}", exc_info=True)
-        raise Exception(f"File upload failed: {str(e)}") from e
+        raise Exception("File storage service is temporarily unavailable") from e
 
 
 def download_to_temp(url: str, suffix: str = ".csv") -> str:

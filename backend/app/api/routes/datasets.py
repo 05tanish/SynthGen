@@ -230,7 +230,7 @@ async def generate_from_prompt(
                 logger.error(f"Cloudinary upload failed: {e}", exc_info=True)
                 raise HTTPException(
                     status_code=500,
-                    detail=f"File upload failed: {str(e)}. The storage service may be unavailable or over quota. Please try again later."
+                    detail="File upload failed. The storage service may be unavailable or over quota. Please try again later."
                 )
                 
             # 3. Process it just like a normal upload
@@ -387,26 +387,34 @@ def generate_synthetic_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
 
-    if not dataset.source_filename:
-        raise HTTPException(
-            status_code=422,
-            detail="Source file is missing. Please re-upload the dataset.",
-        )
+        if not dataset.source_filename:
+            raise HTTPException(
+                status_code=422,
+                detail="Source file is missing. Please re-upload the dataset.",
+            )
 
-    # Create Job
-    job = Job(dataset_id=dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+        # Create Job
+        job = Job(dataset_id=dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
+        db.add(job)
+        db.commit()
+        db.refresh(job)
 
-    # Enqueue background task
-    background_tasks.add_task(run_generation_job, job.id)
+        # Enqueue background task
+        background_tasks.add_task(run_generation_job, job.id)
 
-    return {"message": "Generation job started", "job_id": job.id}
+        return {"message": "Generation job started", "job_id": job.id}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting generation job for dataset {dataset_id}: {e}", exc_info=True)
+        from app.core.error_sanitiser import raise_safe_http_error
+        raise_safe_http_error(e, status_code=500, context="generate_synthetic_data")
 
 @router.delete("/{dataset_id}")
 def delete_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
