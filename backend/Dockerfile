@@ -2,11 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies needed for:
-# - psycopg2-binary (libpq-dev)
-# - scipy / numpy / scikit-learn (build-essential, gfortran, libopenblas-dev)
-# - sdv / ctgan (requires C++ compiler + BLAS)
-# - general compilation (gcc, g++)
+# Install system dependencies in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -18,18 +14,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip first to avoid legacy resolver issues
-RUN pip install --no-cache-dir --upgrade pip
+# Upgrade pip and install wheel for faster builds
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools
 
-# Install CPU-only PyTorch explicitly BEFORE other deps
-# This prevents sdv/ctgan from pulling 3GB+ CUDA versions
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install lightweight packages first (quick wins)
+RUN pip install --no-cache-dir \
+    python-dotenv \
+    python-dateutil \
+    email-validator
+
+# Install PyTorch CPU version explicitly (prevents 3GB+ CUDA download)
 RUN pip install --no-cache-dir \
     torch==2.0.1+cpu \
-    torchvision==0.15.2+cpu \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Copy requirements and install remaining packages
-COPY requirements.txt .
+# Install remaining requirements (will skip torch as it's already installed)
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code

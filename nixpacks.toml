@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = []
+
+[phases.install]
+cmds = [
+  "echo 'Using Dockerfile build - see backend/Dockerfile'"
+]
+
+[phases.build]
+cmds = []
+
+[start]
+cmd = "echo 'Using Dockerfile CMD'"
