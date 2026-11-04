@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { Download, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { Download, ArrowLeft, AlertTriangle, X } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -11,6 +11,7 @@ interface Job {
   dataset_id: number;
   status: string;
   current_step: string;
+  progress_percent?: number;  // NEW: Progress tracking
   error_message: string | null;
   evaluation_report: any | null;
   created_at: string;
@@ -31,6 +32,7 @@ export default function JobTracker() {
   const { jobId } = useParams<{ jobId: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const pollingRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -42,7 +44,7 @@ export default function JobTracker() {
         });
         setJob(res.data);
 
-        if (res.data.status === 'completed' || res.data.status === 'failed') {
+        if (res.data.status === 'completed' || res.data.status === 'failed' || res.data.status === 'cancelled') {
           if (pollingRef.current) clearInterval(pollingRef.current);
         }
       } catch (err: any) {
@@ -79,6 +81,30 @@ export default function JobTracker() {
     }
   };
 
+  const handleCancel = async () => {
+    if (!confirm('Are you sure you want to cancel this generation? This action cannot be undone.')) {
+      return;
+    }
+
+    setCancelling(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_BASE}/api/jobs/${jobId}/cancel`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Refresh job status immediately
+      const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setJob(res.data);
+    } catch (err: any) {
+      console.error("Failed to cancel job", err);
+      alert(err.response?.data?.detail || "Failed to cancel job");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
@@ -102,11 +128,21 @@ export default function JobTracker() {
 
   const isComplete = job.status === 'completed';
   const isFailed = job.status === 'failed';
+  const isCancelled = job.status === 'cancelled';
+  const isRunning = job.status === 'running' || job.status === 'pending';
   
-  // Map steps to numbers
-  const stepsList = ['queued', 'loading_data', 'running_graph', 'saving_results'];
-  const currentIndex = stepsList.indexOf(job.current_step);
-  const progressPercent = isComplete ? 100 : isFailed ? 100 : Math.max(5, (currentIndex / stepsList.length) * 100);
+  // Use progress_percent if available, otherwise calculate from steps
+  let progressPercent = job.progress_percent || 0;
+  
+  if (!progressPercent && !isComplete && !isFailed && !isCancelled) {
+    // Fallback: Map steps to approximate progress
+    const stepsList = ['queued', 'loading_data', 'running_graph', 'saving_results'];
+    const currentIndex = stepsList.indexOf(job.current_step);
+    progressPercent = currentIndex >= 0 ? Math.max(5, (currentIndex / stepsList.length) * 100) : 5;
+  }
+  
+  if (isComplete) progressPercent = 100;
+  if (isFailed || isCancelled) progressPercent = 100;
 
   return (
     <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full" style={{ padding: '2rem' }}>
@@ -126,15 +162,22 @@ export default function JobTracker() {
                 Job ID: {job.id} • Dataset ID: {job.dataset_id}
               </div>
               <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
-                {isComplete ? 'Generation Complete' : isFailed ? 'Generation Failed' : 'Generating your dataset...'}
+                {isComplete ? 'Generation Complete' : isFailed ? 'Generation Failed' : isCancelled ? 'Generation Cancelled' : 'Generating your dataset...'}
               </h2>
             </div>
             
-            {isComplete && (
-              <Button onClick={handleDownload} variant="primary">
-                <Download size={16} className="mr-2" /> Download Dataset
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {isRunning && (
+                <Button onClick={handleCancel} variant="secondary" disabled={cancelling}>
+                  <X size={16} className="mr-2" /> {cancelling ? 'Cancelling...' : 'Cancel Generation'}
+                </Button>
+              )}
+              {isComplete && (
+                <Button onClick={handleDownload} variant="primary">
+                  <Download size={16} className="mr-2" /> Download Dataset
+                </Button>
+              )}
+            </div>
           </div>
 
           <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
@@ -142,16 +185,17 @@ export default function JobTracker() {
               style={{ 
                 height: '100%', 
                 width: `${progressPercent}%`, 
-                backgroundColor: isFailed ? 'var(--error-color)' : isComplete ? 'var(--success-color)' : 'var(--text-primary)',
+                backgroundColor: isFailed || isCancelled ? 'var(--error-color)' : isComplete ? 'var(--success-color)' : 'var(--text-primary)',
                 transition: 'width 0.5s ease'
               }} 
             />
           </div>
 
-          {!isComplete && !isFailed && (
+          {isRunning && (
             <div className="flex justify-between items-center" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              <span>Current step: <strong>{job.current_step.replace('_', ' ')}</strong></span>
+              <span>Current step: <strong>{job.current_step.replace(/_/g, ' ')}</strong></span>
               <div className="flex items-center gap-2">
+                <span>{progressPercent}%</span>
                 <div className="spinner spinner-sm" /> Processing
               </div>
             </div>
@@ -160,6 +204,12 @@ export default function JobTracker() {
           {isFailed && (
             <div style={{ padding: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)', borderRadius: 'var(--radius-md)' }}>
               <strong>Error:</strong> {job.error_message || 'Unknown error occurred'}
+            </div>
+          )}
+          
+          {isCancelled && (
+            <div style={{ padding: '1rem', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning-color)', borderRadius: 'var(--radius-md)' }}>
+              <strong>Cancelled:</strong> {job.error_message || 'This generation was cancelled by the user.'}
             </div>
           )}
 
