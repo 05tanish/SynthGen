@@ -21,7 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Upgrade pip first to avoid legacy resolver issues
 RUN pip install --no-cache-dir --upgrade pip
 
-# Copy requirements and install
+# Install CPU-only PyTorch FIRST to prevent downloading 3GB+ CUDA packages
+# This must happen before sdv/ctgan installation
+RUN pip install --no-cache-dir torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Copy requirements and install (will skip torch since already installed)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
