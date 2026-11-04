@@ -24,7 +24,7 @@ class Job(Base):
         nullable=False
     )
     current_step = Column(String, default="initialized")
-    progress_percent = Column(Integer, default=0)  # NEW: 0-100 progress
+    progress_percent = Column(Integer, default=0, nullable=True)  # 0-100 progress (nullable for backward compatibility)
     error_message = Column(String, nullable=True)
     
     evaluation_report_json = Column(JSON, nullable=True)

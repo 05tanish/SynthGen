@@ -287,10 +287,28 @@ async def generate_from_prompt(
             
             # 5. Automatically enqueue the Generation Job to expand the seed dataset
             logger.info("Creating generation job...")
-            job = Job(dataset_id=db_dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
+            job_data = {
+                "dataset_id": db_dataset.id,
+                "status": JobStatus.PENDING,
+                "current_step": "queued",
+                "user_id": current_user.id
+            }
+            job = Job(**job_data)
             db.add(job)
-            db.commit()
-            db.refresh(job)
+            
+            try:
+                db.commit()
+                db.refresh(job)
+            except Exception as db_error:
+                db.rollback()
+                error_str = str(db_error).lower()
+                if "column" in error_str or "does not exist" in error_str:
+                    logger.error(f"Database schema mismatch: {db_error}")
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Service is being updated. Please try again in a moment."
+                    )
+                raise
             
             background_tasks.add_task(run_generation_job, job.id)
             
@@ -398,11 +416,32 @@ def generate_synthetic_data(
                 detail="Source file is missing. Please re-upload the dataset.",
             )
 
-        # Create Job
-        job = Job(dataset_id=dataset.id, status=JobStatus.PENDING, current_step="queued", user_id=current_user.id)
+        # Create Job with only guaranteed columns
+        # progress_percent will be NULL if column doesn't exist, or 0 if it does (via default)
+        job_data = {
+            "dataset_id": dataset.id,
+            "status": JobStatus.PENDING,
+            "current_step": "queued",
+            "user_id": current_user.id
+        }
+        
+        job = Job(**job_data)
         db.add(job)
-        db.commit()
-        db.refresh(job)
+        
+        try:
+            db.commit()
+            db.refresh(job)
+        except Exception as db_error:
+            db.rollback()
+            # If it's a column error, log and re-raise with friendly message
+            error_str = str(db_error).lower()
+            if "column" in error_str or "does not exist" in error_str:
+                logger.error(f"Database schema mismatch: {db_error}")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Service is being updated. Please try again in a moment."
+                )
+            raise
 
         # Enqueue background task
         background_tasks.add_task(run_generation_job, job.id)

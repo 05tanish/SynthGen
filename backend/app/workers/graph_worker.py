@@ -27,21 +27,50 @@ def _update_job(db: Session, job: Job, **kwargs):
     """
     Helper to update job fields and commit with proper transaction isolation.
     Uses row-level locking to prevent race conditions.
+    Handles missing columns gracefully for backward compatibility.
     """
     try:
         # Refresh the job within the transaction to get latest state
         db.refresh(job)
         
         for key, value in kwargs.items():
-            setattr(job, key, value)
+            # Skip progress_percent if column doesn't exist in database
+            if key == 'progress_percent':
+                try:
+                    setattr(job, key, value)
+                except Exception as e:
+                    logger.debug(f"Could not set progress_percent (column may not exist): {e}")
+                    continue
+            else:
+                setattr(job, key, value)
+        
         job.updated_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(job)
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to update job {job.id}: {e}")
-        raise
+        error_str = str(e).lower()
+        # If it's a column error, log it but don't fail the whole operation
+        if "progress_percent" in error_str and ("column" in error_str or "does not exist" in error_str):
+            logger.warning(f"Database schema missing progress_percent column. Job updates will continue without progress tracking.")
+            # Try again without progress_percent
+            try:
+                db.refresh(job)
+                for key, value in kwargs.items():
+                    if key != 'progress_percent':
+                        setattr(job, key, value)
+                job.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                db.refresh(job)
+                return
+            except Exception as retry_error:
+                logger.error(f"Failed to update job {job.id} even without progress_percent: {retry_error}")
+                db.rollback()
+                raise
+        else:
+            logger.error(f"Failed to update job {job.id}: {e}")
+            raise
 
 
 def _cleanup_temp_file(file_path: str):
