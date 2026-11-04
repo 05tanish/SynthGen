@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.cache.redis import get_redis_client
@@ -115,3 +115,25 @@ def llm_health_check():
             "status": "error",
             "error": str(e)
         }
+
+
+@router.get("/test-background")
+async def test_background_task(background_tasks: BackgroundTasks):
+    """Test if background tasks are working"""
+    import time
+    from app.core.logging import logger
+    
+    def test_task():
+        logger.info("=" * 80)
+        logger.info("🧪 TEST BACKGROUND TASK STARTED")
+        logger.info("=" * 80)
+        time.sleep(2)
+        logger.info("=" * 80)
+        logger.info("✓ TEST BACKGROUND TASK COMPLETED")
+        logger.info("=" * 80)
+    
+    logger.info("Adding test background task to queue...")
+    background_tasks.add_task(test_task)
+    logger.info("Test background task added to queue")
+    
+    return {"message": "Test background task queued - check logs in 2 seconds"}

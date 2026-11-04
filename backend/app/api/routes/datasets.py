@@ -393,16 +393,24 @@ def generate_synthetic_data(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        logger.info(f"=" * 80)
+        logger.info(f"📤 GENERATE REQUEST for dataset {dataset_id} from user {current_user.id}")
+        logger.info("=" * 80)
+        
         dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
         if not dataset:
+            logger.warning(f"Dataset {dataset_id} not found for user {current_user.id}")
             raise HTTPException(status_code=404, detail="Dataset not found")
 
         if not dataset.source_filename:
+            logger.warning(f"Dataset {dataset_id} has no source file")
             raise HTTPException(
                 status_code=422,
                 detail="Source file is missing. Please re-upload the dataset.",
             )
 
+        logger.info(f"Creating job for dataset {dataset_id} (name: {dataset.name})")
+        
         # Create Job (progress_percent column not included - backward compatible)
         job = Job(
             dataset_id=dataset.id,
@@ -413,9 +421,15 @@ def generate_synthetic_data(
         db.add(job)
         db.commit()
         db.refresh(job)
+        
+        logger.info(f"✓ Job {job.id} created successfully")
+        logger.info(f"🔄 Adding job {job.id} to background tasks queue...")
 
         # Enqueue background task
         background_tasks.add_task(run_generation_job, job.id)
+        
+        logger.info(f"✓ Job {job.id} added to background queue")
+        logger.info("=" * 80)
 
         return {"message": "Generation job started", "job_id": job.id}
     

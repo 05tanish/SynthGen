@@ -5,11 +5,11 @@ import enum
 
 class JobStatus(str, enum.Enum):
     """Valid job status values"""
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 class Job(Base):
     __tablename__ = "jobs"
