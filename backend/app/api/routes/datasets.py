@@ -11,7 +11,6 @@ from app.tools.data_loader import load_from_file
 from app.tools.dataset_profiler import profile_dataset
 from app.tools.relationship_analyzer import analyze_relationships
 from app.core.config import settings
-from app.workers.graph_worker import run_generation_job
 from app.core import storage as cloud_storage
 import os
 import uuid
@@ -159,7 +158,6 @@ class PromptGenerationRequest(BaseModel):
 @router.post("/generate-from-prompt")
 async def generate_from_prompt(
     request: PromptGenerationRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -297,7 +295,8 @@ async def generate_from_prompt(
             db.commit()
             db.refresh(job)
             
-            background_tasks.add_task(run_generation_job, job.id)
+            # Job is PENDING — polling worker thread will pick it up within 5 seconds
+            logger.info(f"Generation job {job.id} queued — worker will execute it")
             
             logger.info(f"Generation job started successfully. Job ID: {job.id}, Dataset ID: {db_dataset.id}")
             return {"message": "Generation job started", "job_id": job.id, "dataset_id": db_dataset.id}
