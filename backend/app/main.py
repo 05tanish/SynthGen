@@ -107,6 +107,56 @@ def startup_db():
         import logging
         logging.getLogger("uvicorn.error").warning(f"Database table initialization warning: {e}")
 
+# ─── Background Worker Thread ──────────────────────────────────────────────────
+import threading
+import os
+
+def run_worker_thread():
+    """Run the worker in a background thread"""
+    from app.workers.graph_worker import run_generation_job
+    from app.models.job import Job, JobStatus
+    from app.db.database import SessionLocal
+    from app.core.logging import logger
+    import time
+    
+    logger.info("=" * 80)
+    logger.info("🚀 BACKGROUND WORKER THREAD STARTED")
+    logger.info("=" * 80)
+    
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                # Find pending jobs
+                pending_jobs = db.query(Job).filter(
+                    Job.status == JobStatus.PENDING
+                ).order_by(Job.created_at).all()
+                
+                if pending_jobs:
+                    logger.info(f"Found {len(pending_jobs)} pending jobs")
+                    for job in pending_jobs:
+                        logger.info(f"Processing job {job.id}...")
+                        run_generation_job(job.id)
+            finally:
+                db.close()
+            
+            # Poll every 5 seconds
+            time.sleep(5)
+            
+        except Exception as e:
+            logger.error(f"Worker thread error: {e}", exc_info=True)
+            time.sleep(5)
+
+@app.on_event("startup")
+def startup_worker():
+    """Start the worker thread if ENABLE_WORKER env var is set"""
+    # Only run worker in production or when explicitly enabled
+    if os.getenv("ENABLE_WORKER", "true").lower() in ("true", "1", "yes"):
+        worker_thread = threading.Thread(target=run_worker_thread, daemon=True)
+        worker_thread.start()
+        import logging
+        logging.getLogger("uvicorn.error").info("✅ Background worker thread started")
+
 # ─── COOP Middleware ──────────────────────────────────────────────────────────
 # Google Sign-In popup uses postMessage to communicate with the opener window.
 # The default COOP value "same-origin" blocks that. We must use
