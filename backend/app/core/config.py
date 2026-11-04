@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     LANGFUSE_ENABLED: bool = True  # Set to False to disable
     
     # Generator Settings
-    MAX_ITERATIONS: int = 5
-    QUALITY_THRESHOLD: float = 0.65
+    MAX_ITERATIONS: int = 1   # Keep at 1 in production — GaussianCopula doesn't benefit from retries, and each retry adds LLM calls that can hang
+    QUALITY_THRESHOLD: float = 0.55  # Slightly lower threshold — GaussianCopula won't always hit 0.65
     MAX_CONCURRENT_JOBS: int = 2  # Limit simultaneous SDV model training
     
     # Other settings

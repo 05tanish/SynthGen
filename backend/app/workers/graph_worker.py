@@ -218,11 +218,15 @@ def run_generation_job(job_id: int):
             try:
                 with open(final_tmp, "rb") as f:
                     csv_bytes = f.read()
-                cloudinary_url = cloud_storage.upload_file(
-                    csv_bytes,
-                    f"synthetic/{filename.replace('.csv', '')}",
-                    "synthetix",
-                )
+                import concurrent.futures as _cf
+                with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                    _fut = _ex.submit(
+                        cloud_storage.upload_file,
+                        csv_bytes,
+                        f"synthetic/{filename.replace('.csv', '')}",
+                        "synthetix",
+                    )
+                    cloudinary_url = _fut.result(timeout=120)  # 2-min hard cap on upload
                 logger.info(f"✓ Uploaded successfully: {cloudinary_url[:50]}...")
             finally:
                 _cleanup_temp_file(final_tmp)

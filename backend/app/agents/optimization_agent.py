@@ -35,4 +35,11 @@ class OptimizationAgent:
             return result
         except Exception as e:
             logger.error(f"Failed to optimize plan: {e}")
-            raise
+            # Return a fallback plan so the workflow doesn't crash
+            from app.schemas.optimization import OptimizationPlan
+            return OptimizationPlan(
+                action="switch_model",
+                reasoning="Fallback due to LLM error during optimization.",
+                new_model="GaussianCopula",
+                new_parameters={}
+            )
