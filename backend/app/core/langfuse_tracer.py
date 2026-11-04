@@ -153,7 +153,6 @@ def get_langfuse_handler(
 
 
 @contextmanager
-@contextmanager
 def trace_generation_job(
     job_id: int,
     dataset_id: int,
