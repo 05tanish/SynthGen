@@ -24,7 +24,9 @@ class Job(Base):
         nullable=False
     )
     current_step = Column(String, default="initialized")
-    progress_percent = Column(Integer, default=0, nullable=True)  # 0-100 progress (nullable for backward compatibility)
+    # Note: progress_percent column removed from model for now
+    # It will be added back after database migration is run
+    # This prevents INSERT errors when column doesn't exist in production
     error_message = Column(String, nullable=True)
     
     evaluation_report_json = Column(JSON, nullable=True)

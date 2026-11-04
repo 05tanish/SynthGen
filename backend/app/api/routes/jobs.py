@@ -16,11 +16,9 @@ def get_job_status(job_id: int, db: Session = Depends(get_db), current_user: Use
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Safely get progress_percent (might not exist in older database schemas)
-    try:
-        progress = job.progress_percent if hasattr(job, 'progress_percent') else 0
-    except Exception:
-        progress = 0
+    # progress_percent column temporarily removed for backward compatibility
+    # Will return 0 until database migration is run
+    progress = 0
         
     return {
         "id": job.id,
