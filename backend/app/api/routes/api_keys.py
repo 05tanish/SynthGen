@@ -1,3 +1,16 @@
+"""
+API Key Management Routes (DEPRECATED - NOT IN USE)
+
+This module is preserved for backward compatibility but is not currently 
+registered with the FastAPI application. API keys were originally intended
+for programmatic access but are not used for LLM authentication.
+
+LLM authentication uses server-side environment variables (LLM_API_KEY) only.
+User-facing API key management has been removed from the UI.
+
+The database table (api_keys) is kept for potential future use.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db

@@ -160,8 +160,8 @@ app.include_router(datasets.router, prefix="/api/datasets", tags=["datasets"])
 from app.api.routes import jobs
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs.router, prefix="/api/generations", tags=["generations"])
-from app.api.routes import api_keys
-app.include_router(api_keys.router, prefix="/api/api-keys", tags=["api_keys"])
+# API Keys router removed - feature not currently used for LLM authentication
+# Database table kept for backward compatibility
 from app.api.routes import templates
 app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
 from app.api.routes import usage
