@@ -50,4 +50,4 @@ class EvaluationAgent:
             return result.content
         except Exception as e:
             logger.error(f"Failed to summarize evaluation with LLM: {e}")
-            raise
+            return f"Overall score: {report.overall_score:.2f}. Statistical: {report.statistical_score:.2f}. Privacy: {report.privacy_score:.2f}. ML Utility: {report.ml_utility_score:.2f}. Passed: {report.passed}."

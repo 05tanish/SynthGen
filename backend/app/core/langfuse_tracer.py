@@ -79,14 +79,30 @@ def _init_langfuse():
     
     try:
         from langfuse import Langfuse
-        
-        _langfuse_client = Langfuse(
-            secret_key=settings.LANGFUSE_SECRET_KEY,
-            public_key=settings.LANGFUSE_PUBLIC_KEY,
-            host=settings.LANGFUSE_HOST,
-        )
+        import threading
+
+        # Initialize in a thread with a short timeout — if cloud.langfuse.com
+        # is unreachable, we must not block the worker thread for minutes.
+        result = [None]
+        error = [None]
+        def _init():
+            try:
+                result[0] = Langfuse(
+                    secret_key=settings.LANGFUSE_SECRET_KEY,
+                    public_key=settings.LANGFUSE_PUBLIC_KEY,
+                    host=settings.LANGFUSE_HOST,
+                )
+            except Exception as ex:
+                error[0] = ex
+        t = threading.Thread(target=_init, daemon=True)
+        t.start()
+        t.join(timeout=5)  # 5-second hard cap on Langfuse init
+        if t.is_alive() or result[0] is None:
+            raise RuntimeError(f"Langfuse init timed out or failed: {error[0]}")
+
+        _langfuse_client = result[0]
         _langfuse_available = True
-        logger.info(f"Langfuse observability initialized successfully (host: {settings.LANGFUSE_HOST})")
+        logger.info(f"Langfuse observability initialized (host: {settings.LANGFUSE_HOST})")
         return _langfuse_client
         
     except ImportError:

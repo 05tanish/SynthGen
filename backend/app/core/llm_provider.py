@@ -54,6 +54,6 @@ class LLMProvider:
 
         chain = inject_instructions | llm | parser
         return chain.with_retry(
-            stop_after_attempt=3, 
-            wait_exponential_jitter=True
+            stop_after_attempt=2,       # max 2 attempts (1 retry)
+            wait_exponential_jitter=False,  # no unbounded jitter — fail fast
         )

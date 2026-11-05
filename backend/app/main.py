@@ -113,11 +113,17 @@ import os
 
 def run_worker_thread():
     """Run the worker in a background thread"""
-    from app.workers.graph_worker import run_generation_job
+    from app.workers.graph_worker import run_generation_job, _reset_stale_running_jobs
     from app.models.job import Job, JobStatus
     from app.db.database import SessionLocal
     from app.core.logging import logger
     import time
+
+    # Reset any jobs left RUNNING from a previous crash/deploy
+    try:
+        _reset_stale_running_jobs()
+    except Exception as e:
+        logger.error(f"Failed to reset stale jobs on startup: {e}")
     
     logger.info("=" * 80)
     logger.info("🚀 BACKGROUND WORKER THREAD STARTED")
@@ -127,7 +133,6 @@ def run_worker_thread():
         try:
             db = SessionLocal()
             try:
-                # Find pending jobs
                 pending_jobs = db.query(Job).filter(
                     Job.status == JobStatus.PENDING
                 ).order_by(Job.created_at).all()
@@ -140,7 +145,6 @@ def run_worker_thread():
             finally:
                 db.close()
             
-            # Poll every 5 seconds
             time.sleep(5)
             
         except Exception as e:

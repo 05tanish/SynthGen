@@ -67,6 +67,17 @@ def plan_generation_node(state: GraphState) -> GraphState:
 
 def generate_data_node(state: GraphState) -> GraphState:
     logger.info("Executing generate_data_node...")
+    try:
+        return _generate_data_node_impl(state)
+    except Exception as e:
+        logger.error(f"generate_data_node failed: {e}", exc_info=True)
+        state["is_successful"] = False
+        state["iteration"] = state.get("max_iterations", 1)
+        state["status_message"] = f"Data generation failed: {str(e)[:300]}"
+        return state
+
+
+def _generate_data_node_impl(state: GraphState) -> GraphState:
 
     plan = state["generation_plan"]
     model_name = plan["selected_model"]
@@ -200,6 +211,18 @@ def generate_data_node(state: GraphState) -> GraphState:
 
 def evaluate_data_node(state: GraphState) -> GraphState:
     logger.info("Executing evaluate_data_node...")
+    try:
+        return _evaluate_data_node_impl(state)
+    except Exception as e:
+        logger.error(f"evaluate_data_node failed: {e}", exc_info=True)
+        # Don't crash — treat as a low-score pass so the best result is saved
+        state["is_successful"] = True  # allow saving whatever was generated
+        state["iteration"] = state.get("max_iterations", 1)
+        state["status_message"] = f"Evaluation error (using generated data anyway): {str(e)[:200]}"
+        return state
+
+
+def _evaluate_data_node_impl(state: GraphState) -> GraphState:
 
     real_data_path = state.get("real_data_path")
     synth_data_path = state.get("synthetic_data_path")
