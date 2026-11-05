@@ -227,10 +227,15 @@ def run_generation_job(job_id: int):
         if is_success and synth_tmp_path and os.path.exists(synth_tmp_path):
             import uuid
             import pandas as pd
+            import time as _time
 
+            t0 = _time.time()
+            logger.info(f"[STEP 4a] Reading synthetic CSV...")
             synth_df = pd.read_csv(synth_tmp_path)
-            logger.info(f"Generated {len(synth_df)} rows")
+            logger.info(f"[STEP 4a] Done in {_time.time()-t0:.1f}s — {len(synth_df)} rows")
 
+            t1 = _time.time()
+            logger.info(f"[STEP 4b] Trimming/expanding to {dataset_row_count} rows...")
             requested_rows = min(dataset_row_count or len(synth_df), 30000)
             if len(synth_df) > requested_rows:
                 synth_df = synth_df.sample(n=requested_rows, random_state=42).reset_index(drop=True)
@@ -238,42 +243,48 @@ def run_generation_job(job_id: int):
                 shortfall = requested_rows - len(synth_df)
                 extra = synth_df.sample(n=shortfall, replace=True, random_state=99).reset_index(drop=True)
                 synth_df = pd.concat([synth_df, extra], ignore_index=True)
-
             synth_df = synth_df.drop_duplicates()
             if len(synth_df) < requested_rows:
                 shortfall = requested_rows - len(synth_df)
                 extra = synth_df.sample(n=shortfall, replace=True, random_state=77).reset_index(drop=True)
                 synth_df = pd.concat([synth_df, extra], ignore_index=True)
             synth_df = synth_df.head(requested_rows).reset_index(drop=True)
+            logger.info(f"[STEP 4b] Done in {_time.time()-t1:.1f}s — final {len(synth_df)} rows")
 
+            t2 = _time.time()
+            logger.info(f"[STEP 4c] Writing CSV to temp file...")
             filename = f"synthetic_{dataset_id}_{uuid.uuid4().hex[:8]}.csv"
             with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as f:
                 synth_df.to_csv(f, index=False)
                 final_tmp = f.name
+            logger.info(f"[STEP 4c] Done in {_time.time()-t2:.1f}s")
 
-            logger.info(f"☁️  Uploading {filename} to Cloudinary...")
+            t3 = _time.time()
+            logger.info(f"[STEP 4d] Uploading to Cloudinary ({filename})...")
             try:
                 with open(final_tmp, "rb") as f:
                     csv_bytes = f.read()
+                logger.info(f"[STEP 4d] File size: {len(csv_bytes)/1024:.1f} KB — starting upload...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                     fut = ex.submit(cloud_storage.upload_file, csv_bytes,
                                     f"synthetic/{filename.replace('.csv', '')}", "synthetix")
                     cloudinary_url = fut.result(timeout=120)
-                logger.info(f"✓ Uploaded: {cloudinary_url[:60]}...")
+                logger.info(f"[STEP 4d] Upload done in {_time.time()-t3:.1f}s — {cloudinary_url[:60]}")
             finally:
                 _cleanup_temp_file(final_tmp)
 
             _cleanup_temp_file(synth_tmp_path)
             synth_tmp_path = None
 
-            # Step 1: Mark COMPLETED with the file URL (lightweight write, no JSON blob)
-            # Do this FIRST so the frontend unblocks immediately
+            t4 = _time.time()
+            logger.info(f"[STEP 4e] Writing COMPLETED status to DB...")
             _db_update_job_status(
                 job_id,
                 status=JobStatus.COMPLETED,
                 current_step="finished",
                 synthetic_file_path=cloudinary_url,
             )
+            logger.info(f"[STEP 4e] DB write done in {_time.time()-t4:.1f}s")
             logger.info("=" * 80)
             logger.info(f"✅ JOB {job_id} COMPLETED SUCCESSFULLY")
             logger.info("=" * 80)
