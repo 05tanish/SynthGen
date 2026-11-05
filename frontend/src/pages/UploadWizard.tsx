@@ -35,18 +35,32 @@ const Generate: React.FC = () => {
   // Poll job status
   useEffect(() => {
     if (!jobId || jobDone) return;
+
+    const startTime = Date.now();
+    const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes max polling
+
     const interval = setInterval(async () => {
       try {
         const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`);
-        const { status, current_step } = res.data;
+        const { status, current_step, updated_at } = res.data;
         setJobStep(current_step);
-        if (status === 'completed' || status === 'failed') {
+
+        if (status === 'completed' || status === 'failed' || status === 'COMPLETED' || status === 'FAILED') {
           setJobDone(true);
           clearInterval(interval);
-          if (status === 'failed') {
-          setError(res.data.error_message || 'Generation failed. Please try generating again.');
+          if (status === 'failed' || status === 'FAILED') {
+            setError(res.data.error_message || 'Generation failed. Please try generating again.');
             setIsGenerating(false);
           }
+          return;
+        }
+
+        // Timeout: if still running after 10 minutes, stop polling and show error
+        if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+          clearInterval(interval);
+          setJobDone(true);
+          setError('Generation timed out after 10 minutes. The server may be overloaded. Please try again.');
+          setIsGenerating(false);
         }
       } catch { /* ignore polling errors */ }
     }, 2000);

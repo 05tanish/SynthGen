@@ -66,14 +66,23 @@ def _reset_stale_running_jobs():
         if stale:
             logger.warning(f"Found {len(stale)} stale RUNNING jobs from previous crash — marking FAILED")
             for job in stale:
+                logger.warning(f"  Resetting stale job {job.id} (step={job.current_step})")
                 job.status = JobStatus.FAILED
                 job.current_step = "failed"
                 job.error_message = "Job interrupted by server restart. Please retry."
                 job.updated_at = datetime.now(timezone.utc)
             db.commit()
+            logger.warning(f"Reset {len(stale)} stale jobs to FAILED")
+        else:
+            logger.info("No stale RUNNING jobs found on startup")
+
+        # Also log any PENDING jobs waiting to be picked up
+        pending = db.query(Job).filter(Job.status == JobStatus.PENDING).all()
+        if pending:
+            logger.info(f"Found {len(pending)} PENDING jobs waiting to be processed: {[j.id for j in pending]}")
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to reset stale jobs: {e}")
+        logger.error(f"Failed to reset stale jobs: {e}", exc_info=True)
     finally:
         db.close()
 
