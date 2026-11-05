@@ -22,6 +22,7 @@ def _db_update_job_status(job_id: int, **kwargs):
     Open a FRESH DB session and update job fields.
     Always uses a new connection — never reuses a long-lived session —
     so Neon's idle-connection drops never cause a hang here.
+    Never raises — logs errors and returns silently.
     """
     db = SessionLocal()
     try:
@@ -39,7 +40,7 @@ def _db_update_job_status(job_id: int, **kwargs):
     except Exception as e:
         db.rollback()
         logger.error(f"_db_update_job_status failed for job {job_id}: {e}", exc_info=True)
-        raise
+        # Do NOT re-raise — callers must not crash because of a DB write failure
     finally:
         db.close()
 
@@ -265,17 +266,24 @@ def run_generation_job(job_id: int):
             _cleanup_temp_file(synth_tmp_path)
             synth_tmp_path = None
 
-            # Fresh session — never reuse a session that was open for minutes
+            # Step 1: Mark COMPLETED with the file URL (lightweight write, no JSON blob)
+            # Do this FIRST so the frontend unblocks immediately
             _db_update_job_status(
                 job_id,
                 status=JobStatus.COMPLETED,
                 current_step="finished",
                 synthetic_file_path=cloudinary_url,
-                evaluation_report_json=report,
             )
             logger.info("=" * 80)
             logger.info(f"✅ JOB {job_id} COMPLETED SUCCESSFULLY")
             logger.info("=" * 80)
+
+            # Step 2: Write the evaluation report separately (large JSON, non-blocking to frontend)
+            if report:
+                try:
+                    _db_update_job_status(job_id, evaluation_report_json=report)
+                except Exception as report_err:
+                    logger.warning(f"Could not save evaluation report for job {job_id}: {report_err}")
 
         else:
             _cleanup_temp_file(synth_tmp_path)
@@ -287,8 +295,12 @@ def run_generation_job(job_id: int):
                 status=JobStatus.FAILED,
                 current_step="failed",
                 error_message=error_msg,
-                evaluation_report_json=report,
             )
+            if report:
+                try:
+                    _db_update_job_status(job_id, evaluation_report_json=report)
+                except Exception:
+                    pass
             logger.info(f"❌ JOB {job_id} FAILED")
 
     except Exception as e:
