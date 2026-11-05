@@ -256,6 +256,9 @@ def run_generation_job(job_id: int):
             import uuid
             import pandas as pd
 
+            # Update step so the frontend's "Finalizing dataset" step becomes active
+            _db_update_job_status(job_id, current_step="saving_results")
+
             # 4a — read
             logger.info(f"[JOB {job_id}] [4a] Reading CSV...")
             t = time.time()
@@ -296,14 +299,12 @@ def run_generation_job(job_id: int):
             try:
                 with open(final_tmp, "rb") as f:
                     csv_bytes = f.read()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(
-                        cloud_storage.upload_file,
-                        csv_bytes,
-                        f"synthetic/{filename.replace('.csv', '')}",
-                        "synthetix",
-                    )
-                    cloudinary_url = fut.result(timeout=120)
+                # We're already in a background thread, so call directly (no nested executor)
+                cloudinary_url = cloud_storage.upload_file(
+                    csv_bytes,
+                    f"synthetic/{filename.replace('.csv', '')}",
+                    "synthetix",
+                )
                 logger.info(f"[JOB {job_id}] [4d] Uploaded in {time.time()-t:.1f}s → {cloudinary_url}")
             except Exception as upload_err:
                 logger.error(f"[JOB {job_id}] [4d] Upload FAILED in {time.time()-t:.1f}s: {upload_err}", exc_info=True)

@@ -44,7 +44,9 @@ export default function JobTracker() {
         });
         setJob(res.data);
 
-        if (res.data.status === 'completed' || res.data.status === 'failed' || res.data.status === 'cancelled') {
+        // Backend enum values are uppercase (COMPLETED, FAILED, CANCELLED)
+        const statusUpper = String(res.data.status).toUpperCase();
+        if (statusUpper === 'COMPLETED' || statusUpper === 'FAILED' || statusUpper === 'CANCELLED') {
           if (pollingRef.current) clearInterval(pollingRef.current);
         }
       } catch (err: any) {
@@ -128,17 +130,19 @@ export default function JobTracker() {
     );
   }
 
-  const isComplete = job.status === 'completed';
-  const isFailed = job.status === 'failed';
-  const isCancelled = job.status === 'cancelled';
-  const isRunning = job.status === 'running' || job.status === 'pending';
-  
+  // Backend enum values are uppercase (COMPLETED, FAILED, etc.)
+  const statusUpper = job.status?.toUpperCase() ?? '';
+  const isComplete = statusUpper === 'COMPLETED';
+  const isFailed = statusUpper === 'FAILED';
+  const isCancelled = statusUpper === 'CANCELLED';
+  const isRunning = statusUpper === 'RUNNING' || statusUpper === 'PENDING';
+
   // Use progress_percent if available, otherwise calculate from steps
   let progressPercent = job.progress_percent || 0;
-  
+
   if (!progressPercent && !isComplete && !isFailed && !isCancelled) {
     // Fallback: Map steps to approximate progress
-    const stepsList = ['queued', 'loading_data', 'running_graph', 'saving_results'];
+    const stepsList = ['queued', 'loading_data', 'running_graph', 'finished'];
     const currentIndex = stepsList.indexOf(job.current_step);
     progressPercent = currentIndex >= 0 ? Math.max(5, (currentIndex / stepsList.length) * 100) : 5;
   }

@@ -13,7 +13,7 @@ const GENERATION_STEPS = [
   { key: 'queued', label: 'Request queued' },
   { key: 'loading_data', label: 'Loading data' },
   { key: 'running_graph', label: 'Generating synthetic records' },
-  { key: 'finished', label: 'Finalizing dataset' },
+  { key: 'saving_results', label: 'Finalizing dataset' },
 ];
 
 type GenerationStatus = 'idle' | 'running' | 'completed' | 'failed' | 'timeout';
@@ -42,7 +42,10 @@ const Generate: React.FC = () => {
 
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`);
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const { status, current_step } = res.data;
 
         console.log(`[Poll] job ${jobId} status=${status} step=${current_step}`);
@@ -68,8 +71,14 @@ const Generate: React.FC = () => {
           setError('Generation timed out after 12 minutes. Please try again with a smaller dataset.');
           setGenStatus('timeout');
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('[Poll] error:', err);
+        // On auth failure (401/403), stop polling and prompt user to log in again
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          clearInterval(interval);
+          setError('Session expired. Please log in again.');
+          setGenStatus('failed');
+        }
       }
     }, 2000);
 
@@ -202,6 +211,29 @@ const Generate: React.FC = () => {
             }}>Generate Another</Button>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // ─── Failed / Timeout screen ──────────────────────────────────────────────
+  if (genStatus === 'failed' || genStatus === 'timeout') {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '60vh', gap: '2rem', padding: '2rem',
+        backgroundColor: 'var(--bg-primary)'
+      }}>
+        <div style={{
+          padding: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.08)',
+          border: '1px solid rgba(239, 68, 68, 0.2)', color: 'var(--error-color)',
+          borderRadius: 'var(--radius-md)', fontSize: '0.9375rem', maxWidth: '480px', textAlign: 'center',
+        }}>
+          {error || 'Generation failed. Please try again.'}
+        </div>
+        <Button variant="secondary" onClick={() => {
+          setGenStatus('idle'); setJobId(null);
+          setFile(null); setPrompt(''); setJobStep(''); setError('');
+        }}>Try Again</Button>
       </div>
     );
   }
