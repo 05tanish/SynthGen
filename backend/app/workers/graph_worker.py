@@ -36,10 +36,7 @@ def _update_job(db: Session, job: Job, **kwargs):
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to update job {job.id}: {e}")
-        raise
-
-
-def _cleanup_temp_file(file_path: str):
+        raisedef _cleanup_temp_file(file_path: str):
     """Safely clean up a temporary file."""
     if file_path and os.path.exists(file_path):
         try:
@@ -235,13 +232,37 @@ def run_generation_job(job_id: int):
             _cleanup_temp_file(synth_tmp_path)
             synth_tmp_path = None
 
-            _update_job(
-                db, job,
-                status=JobStatus.COMPLETED,
-                current_step="finished",
-                synthetic_file_path=cloudinary_url,   # URL stored in DB
-                evaluation_report_json=report,
-            )
+            # Use a fresh DB session for the final status update.
+            # The job's session has been open for minutes — Neon/PG may have
+            # silently closed the connection, causing the commit to hang.
+            try:
+                fresh_db = SessionLocal()
+                fresh_job = fresh_db.query(Job).filter(Job.id == job_id).first()
+                if fresh_job:
+                    fresh_job.status = JobStatus.COMPLETED
+                    fresh_job.current_step = "finished"
+                    fresh_job.synthetic_file_path = cloudinary_url
+                    fresh_job.evaluation_report_json = report
+                    fresh_job.updated_at = datetime.now(timezone.utc)
+                    fresh_db.commit()
+                    logger.info(f"✅ Job {job_id} marked COMPLETED in DB")
+                fresh_db.close()
+            except Exception as db_err:
+                logger.error(f"Failed to mark job {job_id} COMPLETED: {db_err}", exc_info=True)
+                # Try one more time with just the status — skip the big report JSON
+                try:
+                    retry_db = SessionLocal()
+                    retry_job = retry_db.query(Job).filter(Job.id == job_id).first()
+                    if retry_job:
+                        retry_job.status = JobStatus.COMPLETED
+                        retry_job.current_step = "finished"
+                        retry_job.synthetic_file_path = cloudinary_url
+                        retry_job.updated_at = datetime.now(timezone.utc)
+                        retry_db.commit()
+                        logger.info(f"✅ Job {job_id} marked COMPLETED (without report)")
+                    retry_db.close()
+                except Exception as retry_err:
+                    logger.error(f"Retry also failed: {retry_err}")
             
             logger.info("=" * 80)
             logger.info(f"✅ JOB {job_id} COMPLETED SUCCESSFULLY")
@@ -254,13 +275,19 @@ def run_generation_job(job_id: int):
             error_msg = final_state.get("status_message", "Workflow failed to produce valid data.")
             logger.error(f"Job failed: {error_msg}")
             
-            _update_job(
-                db, job,
-                status=JobStatus.FAILED,
-                current_step="failed",
-                error_message=error_msg,
-                evaluation_report_json=report,
-            )
+            try:
+                fresh_db = SessionLocal()
+                fresh_job = fresh_db.query(Job).filter(Job.id == job_id).first()
+                if fresh_job:
+                    fresh_job.status = JobStatus.FAILED
+                    fresh_job.current_step = "failed"
+                    fresh_job.error_message = error_msg
+                    fresh_job.evaluation_report_json = report
+                    fresh_job.updated_at = datetime.now(timezone.utc)
+                    fresh_db.commit()
+                fresh_db.close()
+            except Exception as db_err:
+                logger.error(f"Failed to mark job {job_id} FAILED: {db_err}")
             
             logger.info("=" * 80)
             logger.info(f"❌ JOB {job_id} FAILED")
