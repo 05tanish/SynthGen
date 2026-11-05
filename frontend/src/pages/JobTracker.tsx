@@ -44,9 +44,9 @@ export default function JobTracker() {
         });
         setJob(res.data);
 
-        // Backend enum values are uppercase (COMPLETED, FAILED, CANCELLED)
-        const statusUpper = String(res.data.status).toUpperCase();
-        if (statusUpper === 'COMPLETED' || statusUpper === 'FAILED' || statusUpper === 'CANCELLED') {
+        // Backend now returns lowercase status values (completed, failed, cancelled, running, pending)
+        const st = String(res.data.status).toLowerCase();
+        if (st === 'completed' || st === 'failed' || st === 'cancelled') {
           if (pollingRef.current) clearInterval(pollingRef.current);
         }
       } catch (err: any) {
@@ -130,12 +130,12 @@ export default function JobTracker() {
     );
   }
 
-  // Backend enum values are uppercase (COMPLETED, FAILED, etc.)
-  const statusUpper = job.status?.toUpperCase() ?? '';
-  const isComplete = statusUpper === 'COMPLETED';
-  const isFailed = statusUpper === 'FAILED';
-  const isCancelled = statusUpper === 'CANCELLED';
-  const isRunning = statusUpper === 'RUNNING' || statusUpper === 'PENDING';
+  // Backend now returns lowercase status values (completed, failed, cancelled, running, pending)
+  const st = String(job.status ?? '').toLowerCase();
+  const isComplete = st === 'completed';
+  const isFailed = st === 'failed';
+  const isCancelled = st === 'cancelled';
+  const isRunning = st === 'running' || st === 'pending';
 
   // Use progress_percent if available, otherwise calculate from steps
   let progressPercent = job.progress_percent || 0;

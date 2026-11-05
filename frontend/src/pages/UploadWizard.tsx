@@ -51,15 +51,16 @@ const Generate: React.FC = () => {
         console.log(`[Poll] job ${jobId} status=${status} step=${current_step}`);
         setJobStep(current_step || '');
 
-        const statusUpper = String(status).toUpperCase();
+        // Backend now returns lowercase status values (completed, failed, cancelled, running, pending)
+        const st = String(status).toLowerCase();
 
-        if (statusUpper === 'COMPLETED') {
+        if (st === 'completed') {
           clearInterval(interval);
           setGenStatus('completed');
           return;
         }
 
-        if (statusUpper === 'FAILED' || statusUpper === 'CANCELLED') {
+        if (st === 'failed' || st === 'cancelled') {
           clearInterval(interval);
           setError(res.data.error_message || 'Generation failed. Please try again.');
           setGenStatus('failed');

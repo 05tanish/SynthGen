@@ -19,7 +19,7 @@ interface DatasetInfo {
 
 interface JobInfo {
   id: number;
-  status: string;
+  status: string;       // Backend returns uppercase: COMPLETED, FAILED, RUNNING, PENDING
   current_step: string;
   error_message?: string;
   evaluation_report?: {
@@ -29,6 +29,9 @@ interface JobInfo {
     ml_utility_score?: number;
   };
 }
+
+/** Normalize backend uppercase enum → lowercase for safe comparisons */
+const normalizeStatus = (s?: string) => (s ?? '').toLowerCase();
 
 const DatasetDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -47,11 +50,11 @@ const DatasetDetail: React.FC = () => {
       setError('');
       try {
         const token = localStorage.getItem('token');
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        const headers = { Authorization: `Bearer ${token}` };
 
         const [dataRes, jobRes] = await Promise.allSettled([
-          axios.get(`${API_BASE}/api/datasets/${id}`),
-          axios.get(`${API_BASE}/api/jobs/by-dataset/${id}`),
+          axios.get(`${API_BASE}/api/datasets/${id}`, { headers }),
+          axios.get(`${API_BASE}/api/jobs/by-dataset/${id}`, { headers }),
         ]);
 
         if (dataRes.status === 'fulfilled') {
@@ -70,23 +73,30 @@ const DatasetDetail: React.FC = () => {
     load();
   }, [id]);
 
-  // Poll job if still running
+  // Poll job status while running / pending
   useEffect(() => {
-    if (!job || job.status === 'completed' || job.status === 'failed') return;
+    if (!job) return;
+    const st = normalizeStatus(job.status);
+    if (st === 'completed' || st === 'failed' || st === 'cancelled') return;
+
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`${API_BASE}/api/jobs/${job.id}`);
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE}/api/jobs/${job.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         setJob(res.data);
-        if (res.data.status === 'completed' || res.data.status === 'failed') {
+        const s = normalizeStatus(res.data.status);
+        if (s === 'completed' || s === 'failed' || s === 'cancelled') {
           clearInterval(interval);
         }
-      } catch { /* ignore */ }
+      } catch { /* ignore transient errors */ }
     }, 3000);
     return () => clearInterval(interval);
   }, [job]);
 
   const handleDownload = async () => {
-    if (!job || job.status !== 'completed') return;
+    if (!job || normalizeStatus(job.status) !== 'completed') return;
     setIsDownloading(true);
     try {
       const token = localStorage.getItem('token');
@@ -110,13 +120,13 @@ const DatasetDetail: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    // Check if there's an active job
-    if (job && (job.status === 'running' || job.status === 'pending')) {
+    const st = normalizeStatus(job?.status);
+    if (st === 'running' || st === 'pending') {
       alert('Cannot delete dataset with active generation. Please cancel or wait for the job to complete first.');
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete "${dataset?.name || 'this dataset'}"? This action cannot be undone and will delete all associated data.`)) {
+    if (!confirm(`Are you sure you want to delete "${dataset?.name || 'this dataset'}"? This action cannot be undone.`)) {
       return;
     }
 
@@ -126,12 +136,9 @@ const DatasetDetail: React.FC = () => {
       await axios.delete(`${API_BASE}/api/datasets/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      // Navigate back to history after successful deletion
       navigate('/app/history');
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || 'Unable to delete dataset. Please try again.';
-      alert(errorMsg);
+      alert(err.response?.data?.detail || 'Unable to delete dataset. Please try again.');
       setIsDeleting(false);
     }
   };
@@ -161,8 +168,9 @@ const DatasetDetail: React.FC = () => {
     );
   }
 
-  const jobStatus = job?.status;
-  const canDownload = jobStatus === 'completed';
+  const jobStatusLower = normalizeStatus(job?.status);
+  const canDownload = jobStatusLower === 'completed';
+  const isActiveJob = jobStatusLower === 'running' || jobStatusLower === 'pending';
   const report = job?.evaluation_report;
 
   return (
@@ -198,9 +206,9 @@ const DatasetDetail: React.FC = () => {
           <Button
             onClick={handleDelete}
             variant="secondary"
-            disabled={isDeleting || (job?.status === 'running' || job?.status === 'pending')}
+            disabled={isDeleting || isActiveJob}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error-color)' }}
-            title={job?.status === 'running' || job?.status === 'pending' ? 'Cannot delete with active job' : 'Delete dataset'}
+            title={isActiveJob ? 'Cannot delete with active job' : 'Delete dataset'}
           >
             {isDeleting ? <Spinner size="sm" /> : 'Delete'}
           </Button>
@@ -213,7 +221,7 @@ const DatasetDetail: React.FC = () => {
           { label: 'Rows', value: (dataset.row_count || 0).toLocaleString() },
           { label: 'Columns', value: dataset.column_count ?? '—' },
           { label: 'Source', value: dataset.source_type === 'prompt' ? 'AI Prompt' : 'CSV Upload' },
-          { label: 'Status', value: jobStatus ? (jobStatus.charAt(0).toUpperCase() + jobStatus.slice(1)) : 'Unknown' },
+          { label: 'Status', value: jobStatusLower ? (jobStatusLower.charAt(0).toUpperCase() + jobStatusLower.slice(1)) : 'Unknown' },
         ].map((item) => (
           <Card key={item.label}>
             <CardContent style={{ padding: '1.25rem' }}>
@@ -224,17 +232,17 @@ const DatasetDetail: React.FC = () => {
         ))}
       </div>
 
-      {/* Job status */}
+      {/* Job status banner */}
       {job && (
         <Card>
           <CardContent style={{ padding: '1.5rem' }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '1rem' }}>Generation Status</h3>
-            {jobStatus === 'running' || jobStatus === 'pending' ? (
+            {isActiveJob ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--warning-color)', fontSize: '0.875rem' }}>
                 <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
-                {jobStatus === 'pending' ? 'Queued for processing...' : `Generating: ${job.current_step.replace(/_/g, ' ')}...`}
+                {jobStatusLower === 'pending' ? 'Queued for processing...' : `Generating: ${job.current_step.replace(/_/g, ' ')}...`}
               </div>
-            ) : jobStatus === 'completed' ? (
+            ) : jobStatusLower === 'completed' ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--success-color)', fontSize: '0.875rem' }}>
                 <CheckCircle2 size={18} />
                 Generation completed successfully. Download is ready.
@@ -242,7 +250,7 @@ const DatasetDetail: React.FC = () => {
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--error-color)', fontSize: '0.875rem' }}>
                 <XCircle size={18} />
-                Generation failed: {job.error_message || 'An error occurred. Please try generating again.'}
+                {job.error_message || 'Generation failed. Please try generating again.'}
               </div>
             )}
           </CardContent>

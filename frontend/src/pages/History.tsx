@@ -19,22 +19,27 @@ interface Dataset {
 
 interface JobSummary {
   id: number;
-  status: string;
+  status: string;       // Backend returns uppercase: COMPLETED, FAILED, RUNNING, PENDING
   current_step: string;
 }
 
+/** Normalize backend uppercase enum → lowercase for safe comparisons */
+const normalizeStatus = (s?: string) => (s ?? '').toLowerCase();
+
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  completed: <CheckCircle2 size={14} color="var(--success-color)" />,
-  failed: <XCircle size={14} color="var(--error-color)" />,
-  running: <Spinner size="sm" />,
-  pending: <Clock size={14} color="var(--warning-color)" />,
+  completed:  <CheckCircle2 size={14} color="var(--success-color)" />,
+  failed:     <XCircle size={14} color="var(--error-color)" />,
+  cancelled:  <XCircle size={14} color="var(--text-muted)" />,
+  running:    <Spinner size="sm" />,
+  pending:    <Clock size={14} color="var(--warning-color)" />,
 };
 
 const STATUS_LABELS: Record<string, string> = {
   completed: 'Completed',
-  failed: 'Failed',
-  running: 'Generating...',
-  pending: 'Queued',
+  failed:    'Failed',
+  cancelled: 'Cancelled',
+  running:   'Generating...',
+  pending:   'Queued',
 };
 
 const History: React.FC = () => {
@@ -51,23 +56,24 @@ const History: React.FC = () => {
     setError('');
     try {
       const token = localStorage.getItem('token');
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      const res = await axios.get(`${API_BASE}/api/datasets/`);
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const res = await axios.get(`${API_BASE}/api/datasets/`, { headers });
       const data: Dataset[] = res.data;
       setDatasets(data);
 
       // Fetch job status for each dataset in parallel
       const jobs: Record<number, JobSummary> = {};
-      await Promise.all(
+      await Promise.allSettled(
         data.map(async (d) => {
           try {
-            const jobRes = await axios.get(`${API_BASE}/api/jobs/by-dataset/${d.id}`);
+            const jobRes = await axios.get(`${API_BASE}/api/jobs/by-dataset/${d.id}`, { headers });
             jobs[d.id] = jobRes.data;
           } catch { /* dataset may not have a job yet */ }
         })
       );
       setJobMap(jobs);
-    } catch (err) {
+    } catch {
       setError('Failed to load generation history. Please refresh.');
     } finally {
       setIsLoading(false);
@@ -78,7 +84,7 @@ const History: React.FC = () => {
 
   const handleDownload = async (datasetId: number) => {
     const job = jobMap[datasetId];
-    if (!job || job.status !== 'completed') return;
+    if (!job || normalizeStatus(job.status) !== 'completed') return;
     setDownloadingId(datasetId);
     try {
       const token = localStorage.getItem('token');
@@ -105,13 +111,13 @@ const History: React.FC = () => {
   const handleDelete = async (datasetId: number) => {
     const dataset = datasets.find(d => d.id === datasetId);
     const job = jobMap[datasetId];
-    
-    // Check if there's an active job
-    if (job && (job.status === 'running' || job.status === 'pending')) {
+    const st = normalizeStatus(job?.status);
+
+    if (st === 'running' || st === 'pending') {
       alert('Cannot delete dataset with active generation. Please cancel or wait for the job to complete first.');
       return;
     }
-    
+
     if (!confirm(`Are you sure you want to delete "${dataset?.name || 'this dataset'}"? This action cannot be undone.`)) {
       return;
     }
@@ -122,17 +128,14 @@ const History: React.FC = () => {
       await axios.delete(`${API_BASE}/api/datasets/${datasetId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      // Remove from local state
       setDatasets(prev => prev.filter(d => d.id !== datasetId));
       setJobMap(prev => {
-        const newMap = { ...prev };
-        delete newMap[datasetId];
-        return newMap;
+        const next = { ...prev };
+        delete next[datasetId];
+        return next;
       });
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || 'Unable to delete dataset. Please try again.';
-      alert(errorMsg);
+      alert(err.response?.data?.detail || 'Unable to delete dataset. Please try again.');
     } finally {
       setDeletingId(null);
     }
@@ -203,12 +206,17 @@ const History: React.FC = () => {
               ) : (
                 datasets.map((d) => {
                   const job = jobMap[d.id];
-                  const canDownload = job?.status === 'completed';
+                  // Normalize to lowercase for all comparisons
+                  const st = normalizeStatus(job?.status);
+                  const canDownload = st === 'completed';
                   const isDownloading = downloadingId === d.id;
                   const isDeleting = deletingId === d.id;
-                  const hasActiveJob = job && (job.status === 'running' || job.status === 'pending');
+                  const hasActiveJob = st === 'running' || st === 'pending';
+
                   return (
-                    <tr key={d.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background-color 0.1s' }}
+                    <tr
+                      key={d.id}
+                      style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background-color 0.1s' }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
                       onMouseLeave={e => (e.currentTarget.style.backgroundColor = '')}
                     >
@@ -228,9 +236,15 @@ const History: React.FC = () => {
                       </td>
                       <td style={{ padding: '0.875rem 1rem' }}>
                         {job ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', color: job.status === 'completed' ? 'var(--success-color)' : job.status === 'failed' ? 'var(--error-color)' : 'var(--warning-color)' }}>
-                            {STATUS_ICONS[job.status] || <Clock size={14} />}
-                            {STATUS_LABELS[job.status] || job.status}
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                            fontSize: '0.8125rem',
+                            color: st === 'completed' ? 'var(--success-color)'
+                              : st === 'failed' || st === 'cancelled' ? 'var(--error-color)'
+                              : 'var(--warning-color)',
+                          }}>
+                            {STATUS_ICONS[st] || <Clock size={14} />}
+                            {STATUS_LABELS[st] || st}
                           </span>
                         ) : (
                           <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>—</span>
@@ -242,8 +256,7 @@ const History: React.FC = () => {
                       <td style={{ padding: '0.875rem 1rem' }}>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <Button
-                            variant="ghost"
-                            size="sm"
+                            variant="ghost" size="sm"
                             onClick={() => navigate(`/app/datasets/${d.id}`)}
                             title="View dataset"
                             style={{ padding: '0.375rem' }}
@@ -251,8 +264,7 @@ const History: React.FC = () => {
                             <Eye size={15} />
                           </Button>
                           <Button
-                            variant="ghost"
-                            size="sm"
+                            variant="ghost" size="sm"
                             onClick={() => handleDownload(d.id)}
                             disabled={!canDownload || isDownloading}
                             title={canDownload ? 'Download CSV' : 'Not ready for download'}
@@ -261,8 +273,7 @@ const History: React.FC = () => {
                             {isDownloading ? <Spinner size="sm" /> : <Download size={15} />}
                           </Button>
                           <Button
-                            variant="ghost"
-                            size="sm"
+                            variant="ghost" size="sm"
                             onClick={() => handleDelete(d.id)}
                             disabled={isDeleting || hasActiveJob}
                             title={hasActiveJob ? 'Cannot delete dataset with active job' : 'Delete dataset'}

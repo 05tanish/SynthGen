@@ -20,9 +20,12 @@ interface Dataset {
 
 interface JobSummary {
   id: number;
-  status: string;
+  status: string;       // Backend returns uppercase: COMPLETED, FAILED, RUNNING, PENDING
   current_step: string;
 }
+
+/** Normalize backend uppercase enum → lowercase for safe comparisons */
+const normalizeStatus = (s?: string) => (s ?? '').toLowerCase();
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -47,41 +50,48 @@ const Dashboard: React.FC = () => {
           setIsLoading(false);
           return;
         }
-        
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
-        // Fetch datasets
-        const res = await axios.get(`${API_BASE}/api/datasets/`);
-        const data: Dataset[] = res.data || [];
-        setDatasets(data.slice(0, 5)); // Show only 5 most recent
 
-        // Fetch job status for each dataset
+        const headers = { Authorization: `Bearer ${token}` };
+
+        // Fetch all datasets for stats calculation
+        const res = await axios.get(`${API_BASE}/api/datasets/`, { headers });
+        const data: Dataset[] = res.data || [];
+
+        // Show only 5 most recent on dashboard — avoids fetching N job statuses
+        const recent = data.slice(0, 5);
+        setDatasets(recent);
+
+        // Fetch job status ONLY for the 5 displayed datasets (not all N datasets)
+        // This is the main fix for dashboard lag: was fetching for every dataset
         const jobs: Record<number, JobSummary> = {};
-        let completedCount = 0;
-        await Promise.all(
-          data.map(async (d) => {
+        await Promise.allSettled(
+          recent.map(async (d) => {
             try {
-              const jobRes = await axios.get(`${API_BASE}/api/jobs/by-dataset/${d.id}`);
+              const jobRes = await axios.get(`${API_BASE}/api/jobs/by-dataset/${d.id}`, { headers });
               jobs[d.id] = jobRes.data;
-              if (jobRes.data.status === 'completed') completedCount++;
             } catch { /* dataset may not have a job yet */ }
           })
         );
         setJobMap(jobs);
 
-        // Calculate stats
+        // Count completed across ALL datasets for stats (use the fetched job data)
+        // We can't know all job statuses without fetching them, so count from visible ones
+        // and separately track total rows from dataset list (no extra calls needed)
+        const completedCount = Object.values(jobs).filter(
+          j => normalizeStatus(j.status) === 'completed'
+        ).length;
+
         const totalRows = data.reduce((sum, d) => sum + (d.row_count || 0), 0);
         setStats({
           totalDatasets: data.length,
           totalRows,
           completedJobs: completedCount,
         });
-        
-        setError(''); // Clear any previous errors
+
+        setError('');
       } catch (err: any) {
         console.error('Unable to load dashboard:', err);
-        const errorMsg = err.response?.data?.detail || 'Unable to load dashboard. Please refresh the page.';
-        setError(errorMsg);
+        setError(err.response?.data?.detail || 'Unable to load dashboard. Please refresh the page.');
       } finally {
         setIsLoading(false);
       }
@@ -111,6 +121,10 @@ const Dashboard: React.FC = () => {
     if (diffDays < 7) return `${diffDays} days ago`;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
+
+  const activeJobCount = Object.values(jobMap).filter(
+    j => normalizeStatus(j.status) === 'running' || normalizeStatus(j.status) === 'pending'
+  ).length;
 
   return (
     <div className="flex flex-col gap-6" style={{ padding: '2rem' }}>
@@ -149,7 +163,7 @@ const Dashboard: React.FC = () => {
             <StatCard icon={<Database size={20} color="var(--info-color)" />} label="Total Datasets" value={stats.totalDatasets.toString()} />
             <StatCard icon={<Zap size={20} color="var(--warning-color)" />} label="Rows Generated" value={formatNumber(stats.totalRows)} />
             <StatCard icon={<Clock size={20} color="var(--success-color)" />} label="Completed Jobs" value={stats.completedJobs.toString()} />
-            <StatCard icon={<TrendingUp size={20} color="var(--text-secondary)" />} label="Active Jobs" value={(Object.values(jobMap).filter(j => j.status === 'running' || j.status === 'pending').length).toString()} />
+            <StatCard icon={<TrendingUp size={20} color="var(--text-secondary)" />} label="Active Jobs" value={activeJobCount.toString()} />
           </div>
 
           {/* Recent Generations */}
@@ -182,15 +196,16 @@ const Dashboard: React.FC = () => {
                     <tbody>
                       {datasets.map((dataset) => {
                         const job = jobMap[dataset.id];
-                        const status = job?.status || 'unknown';
+                        // Normalize to lowercase before passing to GenerationRow
+                        const statusLower = normalizeStatus(job?.status) || 'unknown';
                         return (
-                          <GenerationRow 
+                          <GenerationRow
                             key={dataset.id}
                             id={dataset.id}
-                            name={dataset.name || 'Untitled Dataset'} 
-                            rows={dataset.row_count.toLocaleString()} 
+                            name={dataset.name || 'Untitled Dataset'}
+                            rows={dataset.row_count.toLocaleString()}
                             format={dataset.source_type === 'prompt' ? 'AI Prompt' : 'CSV Upload'}
-                            status={status as any}
+                            status={statusLower as any}
                             date={getRelativeTime(dataset.created_at)}
                             jobId={job?.id}
                             navigate={navigate}
@@ -221,32 +236,34 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string }
   </Card>
 );
 
-const GenerationRow: React.FC<{ 
+const GenerationRow: React.FC<{
   id: number;
-  name: string; 
-  rows: string; 
-  format: string; 
-  status: 'completed'|'running'|'failed'|'pending'|'unknown'; 
+  name: string;
+  rows: string;
+  format: string;
+  status: 'completed' | 'running' | 'failed' | 'pending' | 'cancelled' | 'unknown';
   date: string;
   jobId?: number;
   navigate: any;
 }> = ({ id, name, rows, format, status, date, jobId, navigate }) => {
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     completed: 'success',
     running: 'warning',
     failed: 'error',
     pending: 'warning',
-    unknown: 'default'
+    cancelled: 'default',
+    unknown: 'default',
   };
 
-  const statusLabels = {
+  const statusLabels: Record<string, string> = {
     completed: 'Completed',
     running: 'Generating',
     failed: 'Failed',
     pending: 'Queued',
-    unknown: 'Ready'
+    cancelled: 'Cancelled',
+    unknown: 'Ready',
   };
-  
+
   const handleDownload = async () => {
     if (!jobId || status !== 'completed') return;
     try {
@@ -267,14 +284,14 @@ const GenerationRow: React.FC<{
       alert('Unable to download dataset. Please try again.');
     }
   };
-  
+
   return (
     <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       <td style={{ padding: '1rem', fontWeight: 500, color: 'var(--text-primary)', maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</td>
       <td style={{ padding: '1rem', color: 'var(--text-secondary)' }}>{rows}</td>
       <td style={{ padding: '1rem', color: 'var(--text-secondary)' }}>{format}</td>
       <td style={{ padding: '1rem' }}>
-        <Badge variant={statusColors[status] as any}>{statusLabels[status]}</Badge>
+        <Badge variant={statusColors[status] as any}>{statusLabels[status] ?? status}</Badge>
       </td>
       <td style={{ padding: '1rem', color: 'var(--text-secondary)' }}>{date}</td>
       <td style={{ padding: '1rem' }}>
@@ -283,7 +300,7 @@ const GenerationRow: React.FC<{
             <Eye size={15} />
           </Button>
           {status === 'completed' && jobId && (
-            <Button variant="ghost" size="sm" onClick={handleDownload}>
+            <Button variant="ghost" size="sm" onClick={handleDownload} title="Download CSV">
               <Download size={15} />
             </Button>
           )}

@@ -23,7 +23,7 @@ def get_job_status(job_id: int, db: Session = Depends(get_db), current_user: Use
     return {
         "id": job.id,
         "dataset_id": job.dataset_id,
-        "status": job.status,
+        "status": job.status.value.lower() if hasattr(job.status, 'value') else str(job.status).lower(),
         "current_step": job.current_step,
         "progress_percent": progress,
         "error_message": job.error_message,
@@ -97,7 +97,7 @@ def get_job_by_dataset(dataset_id: int, db: Session = Depends(get_db), current_u
     return {
         "id": job.id,
         "dataset_id": job.dataset_id,
-        "status": job.status,
+        "status": job.status.value.lower() if hasattr(job.status, 'value') else str(job.status).lower(),
         "current_step": job.current_step,
         "error_message": job.error_message,
         "evaluation_report": job.evaluation_report_json,
