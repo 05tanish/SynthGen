@@ -1,182 +1,197 @@
+"""
+graph_worker.py — generation job executor
+
+Runs in a daemon thread started by main.py (run_worker_thread).
+All DB writes use fresh sessions to avoid Neon idle-connection drops.
+"""
 import os
+import time
 import tempfile
 import concurrent.futures
 from datetime import datetime, timezone
-from sqlalchemy.orm import Session
+
 from app.db.database import SessionLocal
 from app.models.job import Job, JobStatus
 from app.models.dataset import Dataset
-from app.models.user import User  # Import to resolve foreign key FK
+from app.models.user import User  # noqa: F401 — needed for FK resolution
 from app.graph.workflow import build_workflow
 from app.graph.state import GraphState
 from app.core.logging import logger
 from app.core.config import settings
 from app.core import storage as cloud_storage
 
-# Maximum time the entire workflow (LLM + fit + evaluate) is allowed to run
-WORKFLOW_TIMEOUT_SECONDS = 900  # 15 minutes hard cap
+# Hard cap on entire workflow execution (LLM + fit + evaluate)
+WORKFLOW_TIMEOUT_SECONDS = 900  # 15 minutes
 
 
-def _db_update_job_status(job_id: int, **kwargs):
+# ─────────────────────────────────────────────────────────────────────────────
+# DB helpers — always open a fresh session, never reuse long-lived ones
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _db_update_job_status(job_id: int, **kwargs) -> bool:
     """
-    Open a FRESH DB session and update job fields.
-    Always uses a new connection — never reuses a long-lived session —
-    so Neon's idle-connection drops never cause a hang here.
-    Never raises — logs errors and returns silently.
+    Write job fields using a brand-new DB session.
+    Returns True on success, False on failure. Never raises.
     """
     db = SessionLocal()
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job:
-            logger.error(f"_db_update_job_status: job {job_id} not found")
-            return
+            logger.error(f"[DB] Job {job_id} not found when updating {list(kwargs.keys())}")
+            return False
         for key, value in kwargs.items():
             if key == 'progress_percent':
                 continue  # column not in schema yet
             setattr(job, key, value)
         job.updated_at = datetime.now(timezone.utc)
         db.commit()
-        logger.debug(f"Job {job_id} updated: {list(kwargs.keys())}")
+        logger.info(f"[DB] Job {job_id} updated: {list(kwargs.keys())}")
+        return True
     except Exception as e:
         db.rollback()
-        logger.error(f"_db_update_job_status failed for job {job_id}: {e}", exc_info=True)
-        # Do NOT re-raise — callers must not crash because of a DB write failure
+        logger.error(f"[DB] Failed to update job {job_id} ({list(kwargs.keys())}): {e}", exc_info=True)
+        return False
     finally:
         db.close()
 
 
 def _cleanup_temp_file(file_path: str):
-    """Safely clean up a temporary file."""
     if file_path and os.path.exists(file_path):
         try:
             os.remove(file_path)
-            logger.info(f"Cleaned up temp file: {file_path}")
         except Exception as e:
-            logger.warning(f"Failed to clean up temp file {file_path}: {e}")
+            logger.warning(f"[CLEANUP] Could not delete {file_path}: {e}")
 
 
 def _reset_stale_running_jobs():
-    """
-    On worker startup, reset any jobs stuck in RUNNING from a previous crash.
-    These will never complete on their own — mark them FAILED so users can retry.
-    """
+    """Reset jobs left RUNNING by a previous crash/deploy."""
     db = SessionLocal()
     try:
         stale = db.query(Job).filter(Job.status == JobStatus.RUNNING).all()
         if stale:
-            logger.warning(f"Found {len(stale)} stale RUNNING jobs from previous crash — marking FAILED")
+            ids = [j.id for j in stale]
+            logger.warning(f"[STARTUP] Resetting {len(stale)} stale RUNNING jobs to FAILED: {ids}")
             for job in stale:
-                logger.warning(f"  Resetting stale job {job.id} (step={job.current_step})")
                 job.status = JobStatus.FAILED
                 job.current_step = "failed"
-                job.error_message = "Job interrupted by server restart. Please retry."
+                job.error_message = "Interrupted by server restart — please retry."
                 job.updated_at = datetime.now(timezone.utc)
             db.commit()
-            logger.warning(f"Reset {len(stale)} stale jobs to FAILED")
         else:
-            logger.info("No stale RUNNING jobs found on startup")
+            logger.info("[STARTUP] No stale RUNNING jobs found.")
 
-        # Also log any PENDING jobs waiting to be picked up
         pending = db.query(Job).filter(Job.status == JobStatus.PENDING).all()
         if pending:
-            logger.info(f"Found {len(pending)} PENDING jobs waiting to be processed: {[j.id for j in pending]}")
+            logger.info(f"[STARTUP] {len(pending)} PENDING jobs waiting: {[j.id for j in pending]}")
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to reset stale jobs: {e}", exc_info=True)
+        logger.error(f"[STARTUP] Failed to reset stale jobs: {e}", exc_info=True)
     finally:
         db.close()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main job runner
+# ─────────────────────────────────────────────────────────────────────────────
+
 def run_generation_job(job_id: int):
-    """
-    Main entry point for background job execution.
-    Runs in the polling worker thread started by main.py.
-    """
-    logger.info("=" * 80)
-    logger.info(f"🚀 STARTING GENERATION JOB {job_id}")
-    logger.info("=" * 80)
+    logger.info("=" * 72)
+    logger.info(f"🚀 JOB {job_id} — STARTING")
+    logger.info("=" * 72)
 
-    synth_tmp_path = None
     local_source_path = None
+    synth_tmp_path = None
 
-    # ── 1. Load job and dataset using a short-lived session ──────────────────
+    # ── 1. Load job + dataset, mark RUNNING ──────────────────────────────────
     try:
         db = SessionLocal()
         try:
             job = db.query(Job).filter(Job.id == job_id).with_for_update().first()
             if not job:
-                logger.error(f"Job {job_id} not found.")
+                logger.error(f"[JOB {job_id}] Not found in DB.")
                 return
             if job.status == JobStatus.RUNNING:
-                logger.warning(f"Job {job_id} already RUNNING — skipping duplicate.")
+                logger.warning(f"[JOB {job_id}] Already RUNNING — skipping duplicate.")
                 return
             if job.status == JobStatus.CANCELLED:
-                logger.info(f"Job {job_id} cancelled before start.")
+                logger.info(f"[JOB {job_id}] Cancelled before start.")
+                return
+            if job.status not in (JobStatus.PENDING,):
+                logger.warning(f"[JOB {job_id}] Unexpected status {job.status} — skipping.")
                 return
 
             dataset = db.query(Dataset).filter(Dataset.id == job.dataset_id).first()
             if not dataset:
                 db.rollback()
                 db.close()
-                _db_update_job_status(job_id, status=JobStatus.FAILED, error_message="Dataset not found.")
+                _db_update_job_status(job_id, status=JobStatus.FAILED,
+                                      error_message="Dataset not found.")
                 return
 
-            # Snapshot everything we need — then close the session
-            dataset_id = dataset.id
-            dataset_name = dataset.name
-            dataset_row_count = dataset.row_count
-            dataset_column_count = dataset.column_count
-            dataset_source_filename = dataset.source_filename
-            dataset_prompt = dataset.prompt
-            dataset_profile_json = dataset.profile_json
-            dataset_relationships_json = dataset.relationships_json or {}
+            # Snapshot all fields we need — then close session immediately
+            ds = {
+                "id": dataset.id,
+                "name": dataset.name,
+                "row_count": dataset.row_count,
+                "source_filename": dataset.source_filename,
+                "prompt": dataset.prompt,
+                "profile_json": dataset.profile_json,
+                "relationships_json": dataset.relationships_json or {},
+            }
 
-            # Mark RUNNING while session is fresh
             job.status = JobStatus.RUNNING
             job.current_step = "loading_data"
             job.updated_at = datetime.now(timezone.utc)
             db.commit()
+            logger.info(f"[JOB {job_id}] Marked RUNNING — dataset '{ds['name']}' ({ds['row_count']} rows)")
         finally:
             db.close()
+
     except Exception as e:
-        logger.error(f"Job {job_id} failed during initial DB load: {e}", exc_info=True)
-        try:
-            _db_update_job_status(job_id, status=JobStatus.FAILED, error_message=f"Startup error: {str(e)[:200]}")
-        except Exception:
-            pass
+        logger.error(f"[JOB {job_id}] Failed during DB load: {e}", exc_info=True)
+        _db_update_job_status(job_id, status=JobStatus.FAILED,
+                              error_message=f"Startup error: {str(e)[:200]}")
         return
 
-    # ── 2. Download source file ──────────────────────────────────────────────
+    # ── 2. Download source file ───────────────────────────────────────────────
     try:
-        source_ref = dataset_source_filename
+        source_ref = ds["source_filename"]
+        logger.info(f"[JOB {job_id}] Source ref: {source_ref[:80] if source_ref else 'None'}")
+
         if source_ref and source_ref.startswith("http"):
-            logger.info(f"Downloading source from Cloudinary: {source_ref[:60]}...")
+            t = time.time()
             ext = os.path.splitext(source_ref.split("?")[0])[-1] or ".csv"
             local_source_path = cloud_storage.download_to_temp(source_ref, suffix=ext)
             source_path = local_source_path
+            logger.info(f"[JOB {job_id}] Downloaded source in {time.time()-t:.1f}s → {source_path}")
         else:
             source_path = os.path.abspath(source_ref) if source_ref else None
+            logger.info(f"[JOB {job_id}] Using local source: {source_path}")
 
         if not source_path or not os.path.exists(source_path):
-            _db_update_job_status(job_id, status=JobStatus.FAILED, error_message="Source file not found.")
+            logger.error(f"[JOB {job_id}] Source file missing: {source_path}")
+            _db_update_job_status(job_id, status=JobStatus.FAILED,
+                                  error_message="Source file not found.")
             return
+
     except Exception as e:
-        logger.error(f"Job {job_id} failed during file download: {e}", exc_info=True)
-        _db_update_job_status(job_id, status=JobStatus.FAILED, error_message=f"Failed to load source file: {str(e)[:200]}")
+        logger.error(f"[JOB {job_id}] File download failed: {e}", exc_info=True)
+        _db_update_job_status(job_id, status=JobStatus.FAILED,
+                              error_message=f"Download error: {str(e)[:200]}")
         return
 
-    # ── 3. Build and run the LangGraph workflow ──────────────────────────────
+    # ── 3. Run LangGraph workflow ─────────────────────────────────────────────
     try:
         _db_update_job_status(job_id, current_step="running_graph")
 
         initial_state: GraphState = {
-            "dataset_id": dataset_id,
-            "requirement": dataset_prompt,
+            "dataset_id": ds["id"],
+            "requirement": ds["prompt"],
             "requirement_analysis": None,
             "real_data_path": source_path,
-            "schema_json": dataset_profile_json,
-            "profile_json": dataset_profile_json,
-            "relationships_json": dataset_relationships_json,
+            "schema_json": ds["profile_json"],
+            "profile_json": ds["profile_json"],
+            "relationships_json": ds["relationships_json"],
             "generation_plan": None,
             "synthetic_data_path": None,
             "evaluation_report": None,
@@ -190,62 +205,67 @@ def run_generation_job(job_id: int):
             "status_message": "Starting workflow",
         }
 
-        logger.info(f"Building workflow (max_iterations={settings.MAX_ITERATIONS})...")
+        logger.info(f"[JOB {job_id}] Building workflow (MAX_ITERATIONS={settings.MAX_ITERATIONS})...")
         workflow = build_workflow()
 
-        # Run workflow in a thread with a hard global timeout so the worker
-        # thread is never blocked forever if an LLM call or fit() hangs.
-        logger.info(f"🔄 Invoking workflow (timeout={WORKFLOW_TIMEOUT_SECONDS}s)...")
+        logger.info(f"[JOB {job_id}] Invoking workflow (timeout={WORKFLOW_TIMEOUT_SECONDS}s)...")
+        t_wf = time.time()
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(workflow.invoke, initial_state)
             try:
                 final_state = future.result(timeout=WORKFLOW_TIMEOUT_SECONDS)
             except concurrent.futures.TimeoutError:
                 raise RuntimeError(
-                    f"Workflow exceeded {WORKFLOW_TIMEOUT_SECONDS}s timeout. "
-                    "Generation cancelled to prevent server resource exhaustion."
+                    f"Workflow timed out after {WORKFLOW_TIMEOUT_SECONDS}s."
                 )
-        logger.info("✓ Workflow completed")
+        logger.info(f"[JOB {job_id}] Workflow done in {time.time()-t_wf:.1f}s. "
+                    f"is_successful={final_state.get('is_successful')} "
+                    f"synth_path={final_state.get('synthetic_data_path')} "
+                    f"best_path={final_state.get('best_synthetic_data_path')}")
 
     except Exception as e:
-        logger.error(f"Job {job_id} workflow failed: {e}", exc_info=True)
+        logger.error(f"[JOB {job_id}] Workflow FAILED: {e}", exc_info=True)
         _cleanup_temp_file(local_source_path)
-        try:
-            from app.core.error_sanitiser import safe_error_message
-            _db_update_job_status(job_id, status=JobStatus.FAILED,
-                                  current_step="failed",
-                                  error_message=safe_error_message(e))
-        except Exception as inner_e:
-            logger.error(f"Could not mark job {job_id} FAILED: {inner_e}")
+        _db_update_job_status(job_id, status=JobStatus.FAILED,
+                              current_step="failed",
+                              error_message=str(e)[:500])
         return
 
-    # ── 4. Process and upload results ────────────────────────────────────────
+    # ── 4. Process results and upload ────────────────────────────────────────
     try:
-        is_success = final_state.get("is_successful")
+        is_success = final_state.get("is_successful", False)
         synth_tmp_path = final_state.get("synthetic_data_path")
         report = final_state.get("evaluation_report")
 
-        # Use best result if threshold wasn't met
+        # Prefer best result if threshold wasn't met but data exists
         if not is_success and final_state.get("best_synthetic_data_path"):
-            logger.info("Using best result (threshold not met).")
+            logger.info(f"[JOB {job_id}] Using best result (threshold not met).")
             _cleanup_temp_file(synth_tmp_path)
             synth_tmp_path = final_state.get("best_synthetic_data_path")
             report = final_state.get("best_evaluation_report")
             is_success = True
 
+        # If any data exists at all, treat as success — never discard generated data
+        if not is_success and synth_tmp_path and os.path.exists(synth_tmp_path):
+            logger.warning(f"[JOB {job_id}] is_successful=False but data exists — treating as success.")
+            is_success = True
+
+        logger.info(f"[JOB {job_id}] Final: is_success={is_success} path={synth_tmp_path}")
+
         if is_success and synth_tmp_path and os.path.exists(synth_tmp_path):
             import uuid
             import pandas as pd
-            import time as _time
 
-            t0 = _time.time()
-            logger.info(f"[STEP 4a] Reading synthetic CSV...")
+            # 4a — read
+            logger.info(f"[JOB {job_id}] [4a] Reading CSV...")
+            t = time.time()
             synth_df = pd.read_csv(synth_tmp_path)
-            logger.info(f"[STEP 4a] Done in {_time.time()-t0:.1f}s — {len(synth_df)} rows")
+            logger.info(f"[JOB {job_id}] [4a] {len(synth_df)} rows read in {time.time()-t:.1f}s")
 
-            t1 = _time.time()
-            logger.info(f"[STEP 4b] Trimming/expanding to {dataset_row_count} rows...")
-            requested_rows = min(dataset_row_count or len(synth_df), 30000)
+            # 4b — adjust row count
+            logger.info(f"[JOB {job_id}] [4b] Adjusting to {ds['row_count']} rows...")
+            t = time.time()
+            requested_rows = min(ds["row_count"] or len(synth_df), 30000)
             if len(synth_df) > requested_rows:
                 synth_df = synth_df.sample(n=requested_rows, random_state=42).reset_index(drop=True)
             elif len(synth_df) < requested_rows:
@@ -254,84 +274,82 @@ def run_generation_job(job_id: int):
                 synth_df = pd.concat([synth_df, extra], ignore_index=True)
             synth_df = synth_df.drop_duplicates()
             if len(synth_df) < requested_rows:
-                shortfall = requested_rows - len(synth_df)
-                extra = synth_df.sample(n=shortfall, replace=True, random_state=77).reset_index(drop=True)
+                extra = synth_df.sample(n=requested_rows - len(synth_df), replace=True, random_state=77).reset_index(drop=True)
                 synth_df = pd.concat([synth_df, extra], ignore_index=True)
             synth_df = synth_df.head(requested_rows).reset_index(drop=True)
-            logger.info(f"[STEP 4b] Done in {_time.time()-t1:.1f}s — final {len(synth_df)} rows")
+            logger.info(f"[JOB {job_id}] [4b] Final {len(synth_df)} rows in {time.time()-t:.1f}s")
 
-            t2 = _time.time()
-            logger.info(f"[STEP 4c] Writing CSV to temp file...")
-            filename = f"synthetic_{dataset_id}_{uuid.uuid4().hex[:8]}.csv"
+            # 4c — write temp CSV
+            logger.info(f"[JOB {job_id}] [4c] Writing temp CSV...")
+            t = time.time()
+            filename = f"synthetic_{ds['id']}_{uuid.uuid4().hex[:8]}.csv"
             with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as f:
                 synth_df.to_csv(f, index=False)
                 final_tmp = f.name
-            logger.info(f"[STEP 4c] Done in {_time.time()-t2:.1f}s")
+            size_kb = os.path.getsize(final_tmp) / 1024
+            logger.info(f"[JOB {job_id}] [4c] Written {size_kb:.0f} KB in {time.time()-t:.1f}s")
 
-            t3 = _time.time()
-            logger.info(f"[STEP 4d] Uploading to Cloudinary ({filename})...")
+            # 4d — upload to Cloudinary
+            logger.info(f"[JOB {job_id}] [4d] Uploading {filename} ({size_kb:.0f} KB) to Cloudinary...")
+            t = time.time()
+            cloudinary_url = None
             try:
                 with open(final_tmp, "rb") as f:
                     csv_bytes = f.read()
-                logger.info(f"[STEP 4d] File size: {len(csv_bytes)/1024:.1f} KB — starting upload...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(cloud_storage.upload_file, csv_bytes,
-                                    f"synthetic/{filename.replace('.csv', '')}", "synthetix")
+                    fut = ex.submit(
+                        cloud_storage.upload_file,
+                        csv_bytes,
+                        f"synthetic/{filename.replace('.csv', '')}",
+                        "synthetix",
+                    )
                     cloudinary_url = fut.result(timeout=120)
-                logger.info(f"[STEP 4d] Upload done in {_time.time()-t3:.1f}s — {cloudinary_url[:60]}")
+                logger.info(f"[JOB {job_id}] [4d] Uploaded in {time.time()-t:.1f}s → {cloudinary_url}")
+            except Exception as upload_err:
+                logger.error(f"[JOB {job_id}] [4d] Upload FAILED in {time.time()-t:.1f}s: {upload_err}", exc_info=True)
             finally:
                 _cleanup_temp_file(final_tmp)
 
             _cleanup_temp_file(synth_tmp_path)
             synth_tmp_path = None
 
-            t4 = _time.time()
-            logger.info(f"[STEP 4e] Writing COMPLETED status to DB...")
-            _db_update_job_status(
-                job_id,
-                status=JobStatus.COMPLETED,
-                current_step="finished",
-                synthetic_file_path=cloudinary_url,
-            )
-            logger.info(f"[STEP 4e] DB write done in {_time.time()-t4:.1f}s")
-            logger.info("=" * 80)
-            logger.info(f"✅ JOB {job_id} COMPLETED SUCCESSFULLY")
-            logger.info("=" * 80)
-
-            # Step 2: Write the evaluation report separately (large JSON, non-blocking to frontend)
-            if report:
-                try:
+            # 4e — write COMPLETED to DB
+            if cloudinary_url:
+                logger.info(f"[JOB {job_id}] [4e] Writing COMPLETED to DB...")
+                t = time.time()
+                ok = _db_update_job_status(
+                    job_id,
+                    status=JobStatus.COMPLETED,
+                    current_step="finished",
+                    synthetic_file_path=cloudinary_url,
+                )
+                logger.info(f"[JOB {job_id}] [4e] DB write {'OK' if ok else 'FAILED'} in {time.time()-t:.1f}s")
+                logger.info("=" * 72)
+                logger.info(f"✅ JOB {job_id} COMPLETED SUCCESSFULLY")
+                logger.info("=" * 72)
+                # Write report separately (large JSON — non-critical)
+                if report:
                     _db_update_job_status(job_id, evaluation_report_json=report)
-                except Exception as report_err:
-                    logger.warning(f"Could not save evaluation report for job {job_id}: {report_err}")
+            else:
+                logger.error(f"[JOB {job_id}] [4e] Cloudinary upload failed — marking FAILED")
+                _db_update_job_status(job_id, status=JobStatus.FAILED,
+                                      current_step="failed",
+                                      error_message="File upload failed. Please retry.")
 
         else:
             _cleanup_temp_file(synth_tmp_path)
-            synth_tmp_path = None
-            error_msg = final_state.get("status_message", "Workflow failed to produce valid data.")
-            logger.error(f"Job {job_id} failed: {error_msg}")
-            _db_update_job_status(
-                job_id,
-                status=JobStatus.FAILED,
-                current_step="failed",
-                error_message=error_msg,
-            )
+            error_msg = final_state.get("status_message", "No synthetic data was produced.")
+            logger.error(f"[JOB {job_id}] No data produced. Reason: {error_msg}")
+            _db_update_job_status(job_id, status=JobStatus.FAILED,
+                                  current_step="failed", error_message=error_msg)
             if report:
-                try:
-                    _db_update_job_status(job_id, evaluation_report_json=report)
-                except Exception:
-                    pass
-            logger.info(f"❌ JOB {job_id} FAILED")
+                _db_update_job_status(job_id, evaluation_report_json=report)
 
     except Exception as e:
-        logger.error(f"Job {job_id} failed during result processing: {e}", exc_info=True)
+        logger.error(f"[JOB {job_id}] Result processing CRASHED: {e}", exc_info=True)
         _cleanup_temp_file(synth_tmp_path)
-        try:
-            from app.core.error_sanitiser import safe_error_message
-            _db_update_job_status(job_id, status=JobStatus.FAILED,
-                                  current_step="failed",
-                                  error_message=safe_error_message(e))
-        except Exception as inner_e:
-            logger.error(f"Could not mark job {job_id} FAILED after result error: {inner_e}")
+        _db_update_job_status(job_id, status=JobStatus.FAILED,
+                              current_step="failed",
+                              error_message=f"Internal error: {str(e)[:300]}")
     finally:
         _cleanup_temp_file(local_source_path)

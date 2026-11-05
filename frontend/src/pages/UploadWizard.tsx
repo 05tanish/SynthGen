@@ -16,6 +16,8 @@ const GENERATION_STEPS = [
   { key: 'finished', label: 'Finalizing dataset' },
 ];
 
+type GenerationStatus = 'idle' | 'running' | 'completed' | 'failed' | 'timeout';
+
 const Generate: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,46 +28,53 @@ const Generate: React.FC = () => {
   const [prompt, setPrompt] = useState(navState?.prompt || '');
   const [rows, setRows] = useState(500);
   const [format, setFormat] = useState('CSV');
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [genStatus, setGenStatus] = useState<GenerationStatus>('idle');
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState<number | null>(null);
   const [jobStep, setJobStep] = useState<string>('');
-  const [jobDone, setJobDone] = useState(false);
 
   // Poll job status
   useEffect(() => {
-    if (!jobId || jobDone) return;
+    if (!jobId || genStatus !== 'running') return;
 
     const startTime = Date.now();
-    const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes max polling
+    const TIMEOUT_MS = 12 * 60 * 1000; // 12 min hard stop
 
     const interval = setInterval(async () => {
       try {
         const res = await axios.get(`${API_BASE}/api/jobs/${jobId}`);
-        const { status, current_step, updated_at } = res.data;
-        setJobStep(current_step);
+        const { status, current_step } = res.data;
 
-        if (status === 'completed' || status === 'failed' || status === 'COMPLETED' || status === 'FAILED') {
-          setJobDone(true);
+        console.log(`[Poll] job ${jobId} status=${status} step=${current_step}`);
+        setJobStep(current_step || '');
+
+        const statusUpper = String(status).toUpperCase();
+
+        if (statusUpper === 'COMPLETED') {
           clearInterval(interval);
-          if (status === 'failed' || status === 'FAILED') {
-            setError(res.data.error_message || 'Generation failed. Please try generating again.');
-            setIsGenerating(false);
-          }
+          setGenStatus('completed');
           return;
         }
 
-        // Timeout: if still running after 10 minutes, stop polling and show error
-        if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+        if (statusUpper === 'FAILED' || statusUpper === 'CANCELLED') {
           clearInterval(interval);
-          setJobDone(true);
-          setError('Generation timed out after 10 minutes. The server may be overloaded. Please try again.');
-          setIsGenerating(false);
+          setError(res.data.error_message || 'Generation failed. Please try again.');
+          setGenStatus('failed');
+          return;
         }
-      } catch { /* ignore polling errors */ }
+
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          clearInterval(interval);
+          setError('Generation timed out after 12 minutes. Please try again with a smaller dataset.');
+          setGenStatus('timeout');
+        }
+      } catch (err) {
+        console.error('[Poll] error:', err);
+      }
     }, 2000);
+
     return () => clearInterval(interval);
-  }, [jobId, jobDone]);
+  }, [jobId, genStatus]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) { setFile(e.target.files[0]); setError(''); }
@@ -80,9 +89,8 @@ const Generate: React.FC = () => {
     if (mode === 'dataset' && !file) { setError('Please upload a CSV file.'); return; }
     if (mode === 'prompt' && !prompt.trim()) { setError('Please describe the dataset you want to generate.'); return; }
 
-    setIsGenerating(true);
+    setGenStatus('running');
     setError('');
-    setJobDone(false);
     setJobStep('');
 
     try {
@@ -94,14 +102,10 @@ const Generate: React.FC = () => {
       if (mode === 'dataset') {
         const formData = new FormData();
         formData.append('file', file as File);
-        
-        // Build the prompt: include user's custom instructions and row count directive
         let generationPrompt = prompt.trim();
         if (!generationPrompt.toLowerCase().includes('generate') || !generationPrompt.match(/\d+\s*rows?/i)) {
-          // User didn't specify row count in their prompt, so add it
           generationPrompt = `Generate exactly ${rows} rows based on this dataset. ${generationPrompt}`.trim();
         }
-        
         formData.append('prompt', generationPrompt);
         const uploadRes = await axios.post(`${API_BASE}/api/datasets/upload`, formData);
         const datasetId = uploadRes.data.id;
@@ -121,28 +125,21 @@ const Generate: React.FC = () => {
     } catch (err: any) {
       const detail = err.response?.data?.detail || 'Unable to start generation. Please try again.';
       setError(detail);
-      setIsGenerating(false);
+      setGenStatus('idle');
     }
   };
 
   const activeStepIndex = GENERATION_STEPS.findIndex(s => s.key === jobStep);
 
-  // ─── Generating state overlay ────────────────────────────────────────────────
-  if (isGenerating && !jobDone) {
+  // ─── Running screen ───────────────────────────────────────────────────────
+  if (genStatus === 'running') {
     return (
-      <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        minHeight: '60vh', 
-        gap: '2rem', 
-        padding: '2rem',
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '60vh', gap: '2rem', padding: '2rem',
         backgroundColor: 'var(--bg-primary)'
       }}>
-        <div style={{ position: 'relative', width: '64px', height: '64px' }}>
-          <Loader2 size={64} color="var(--text-primary)" style={{ animation: 'spin 1.2s linear infinite' }} />
-        </div>
+        <Loader2 size={64} color="var(--text-primary)" style={{ animation: 'spin 1.2s linear infinite' }} />
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontSize: '1.375rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
             Generating dataset...
@@ -151,8 +148,6 @@ const Generate: React.FC = () => {
             This may take a minute. Please don't close this page.
           </p>
         </div>
-
-        {/* Step progress */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', maxWidth: '340px' }}>
           {GENERATION_STEPS.map((s, i) => {
             const isDone = activeStepIndex > i;
@@ -170,7 +165,7 @@ const Generate: React.FC = () => {
                 </div>
                 <span style={{
                   fontSize: '0.875rem',
-                  color: isDone ? 'var(--text-primary)' : isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                  color: isDone || isActive ? 'var(--text-primary)' : 'var(--text-muted)',
                   fontWeight: isActive ? 500 : 400,
                 }}>
                   {s.label}
@@ -183,16 +178,12 @@ const Generate: React.FC = () => {
     );
   }
 
-  if (jobDone && isGenerating) {
+  // ─── Success screen ───────────────────────────────────────────────────────
+  if (genStatus === 'completed') {
     return (
-      <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        minHeight: '60vh', 
-        gap: '2rem', 
-        padding: '2rem',
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '60vh', gap: '2rem', padding: '2rem',
         backgroundColor: 'var(--bg-primary)'
       }}>
         <CheckCircle2 size={56} color="var(--success-color)" />
@@ -206,8 +197,8 @@ const Generate: React.FC = () => {
           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
             <Button onClick={() => navigate(`/app/jobs/${jobId}`)}>View Results</Button>
             <Button variant="secondary" onClick={() => {
-              setIsGenerating(false); setJobId(null);
-              setFile(null); setPrompt(''); setJobStep(''); setJobDone(false);
+              setGenStatus('idle'); setJobId(null);
+              setFile(null); setPrompt(''); setJobStep('');
             }}>Generate Another</Button>
           </div>
         </div>
