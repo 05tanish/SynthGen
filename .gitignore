@@ -124,3 +124,9 @@ celerybeat.pid
 *.bak
 *.backup
 /docs
+!/docs/
+/docs/*
+!/docs/EVALUATION_AUDIT.md
+!/docs/EVALUATION_METHODOLOGY.md
+!/docs/BENCHMARK_RESULTS.md
+!/docs/EVALUATION_ARCHITECTURE.md

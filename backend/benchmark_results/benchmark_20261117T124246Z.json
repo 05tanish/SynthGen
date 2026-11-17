@@ -1,0 +1,153 @@
+{
+  "timestamp_utc": "2026-11-17T12:42:45.092348+00:00",
+  "fixture_version": "1.0.0",
+  "benchmark_seed": 42,
+  "dependency_versions": {
+    "sdv": "1.38.3",
+    "pandas": "2.2.1",
+    "numpy": "1.26.4",
+    "scipy": "1.17.1",
+    "scikit-learn": "1.9.0",
+    "torch": "2.14.0"
+  },
+  "runtime_environment": {
+    "platform": "macOS-15.5-arm64-arm-64bit",
+    "python": "3.12.5",
+    "logical_cpu_count": 8,
+    "memory_usage": "not measured (psutil is not a declared dependency)"
+  },
+  "configuration": {
+    "epochs": 2,
+    "output_rows": 240,
+    "models": [
+      "GaussianCopula",
+      "CTGAN",
+      "TVAE"
+    ],
+    "fixtures": [
+      "mixed"
+    ]
+  },
+  "runs": [
+    {
+      "dataset": {
+        "name": "mixed",
+        "version": "1.0.0",
+        "rows": 240,
+        "columns": 3,
+        "column_names": [
+          "amount",
+          "segment",
+          "label"
+        ],
+        "random_seed": 42
+      },
+      "generator": {
+        "requested_model": "GaussianCopula",
+        "actual_model": null,
+        "fallback_reason": null,
+        "requested_parameters": {},
+        "effective_parameters": null,
+        "status": "FAILED",
+        "runtime_seconds": 0.973615749997407,
+        "error": "ImportError: dlopen(<python-env>/lib/python3.12/site-packages/torch/_C.cpython-312-darwin.so, 0x0002): Library not loaded: @loader_path/libtorch_cpu.dylib\n  Referenced from: <0D3074B7-3BE2-33CD-9140-0D0F1EA662E8> <python-env>/lib/python3.12/site-packages/torch/lib/libtorch_python.dylib\n  Reason: tried: '<python-env>/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib' (no such file)"
+      },
+      "evaluation_configuration": {
+        "target_column": "label",
+        "task_type": "classification",
+        "random_seed": 42,
+        "privacy_sample_size": 1000
+      },
+      "metrics": {},
+      "errors": [
+        {
+          "component": "generation",
+          "message": "ImportError: dlopen(<python-env>/lib/python3.12/site-packages/torch/_C.cpython-312-darwin.so, 0x0002): Library not loaded: @loader_path/libtorch_cpu.dylib\n  Referenced from: <0D3074B7-3BE2-33CD-9140-0D0F1EA662E8> <python-env>/lib/python3.12/site-packages/torch/lib/libtorch_python.dylib\n  Reason: tried: '<python-env>/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib' (no such file)"
+        }
+      ]
+    },
+    {
+      "dataset": {
+        "name": "mixed",
+        "version": "1.0.0",
+        "rows": 240,
+        "columns": 3,
+        "column_names": [
+          "amount",
+          "segment",
+          "label"
+        ],
+        "random_seed": 42
+      },
+      "generator": {
+        "requested_model": "CTGAN",
+        "actual_model": null,
+        "fallback_reason": null,
+        "requested_parameters": {
+          "epochs": 2,
+          "batch_size": 128,
+          "pac": 10,
+          "verbose": false
+        },
+        "effective_parameters": null,
+        "status": "FAILED",
+        "runtime_seconds": 0.0020880830015812535,
+        "error": "ImportError: dlopen(<python-env>/lib/python3.12/site-packages/torch/_C.cpython-312-darwin.so, 0x0002): Library not loaded: @loader_path/libtorch_cpu.dylib\n  Referenced from: <0D3074B7-3BE2-33CD-9140-0D0F1EA662E8> <python-env>/lib/python3.12/site-packages/torch/lib/libtorch_python.dylib\n  Reason: tried: '<python-env>/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib' (no such file)"
+      },
+      "evaluation_configuration": {
+        "target_column": "label",
+        "task_type": "classification",
+        "random_seed": 42,
+        "privacy_sample_size": 1000
+      },
+      "metrics": {},
+      "errors": [
+        {
+          "component": "generation",
+          "message": "ImportError: dlopen(<python-env>/lib/python3.12/site-packages/torch/_C.cpython-312-darwin.so, 0x0002): Library not loaded: @loader_path/libtorch_cpu.dylib\n  Referenced from: <0D3074B7-3BE2-33CD-9140-0D0F1EA662E8> <python-env>/lib/python3.12/site-packages/torch/lib/libtorch_python.dylib\n  Reason: tried: '<python-env>/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib' (no such file)"
+        }
+      ]
+    },
+    {
+      "dataset": {
+        "name": "mixed",
+        "version": "1.0.0",
+        "rows": 240,
+        "columns": 3,
+        "column_names": [
+          "amount",
+          "segment",
+          "label"
+        ],
+        "random_seed": 42
+      },
+      "generator": {
+        "requested_model": "TVAE",
+        "actual_model": null,
+        "fallback_reason": null,
+        "requested_parameters": {
+          "epochs": 2,
+          "batch_size": 128,
+          "verbose": false
+        },
+        "effective_parameters": null,
+        "status": "FAILED",
+        "runtime_seconds": 0.0016545830003451556,
+        "error": "ImportError: dlopen(<python-env>/lib/python3.12/site-packages/torch/_C.cpython-312-darwin.so, 0x0002): Library not loaded: @loader_path/libtorch_cpu.dylib\n  Referenced from: <0D3074B7-3BE2-33CD-9140-0D0F1EA662E8> <python-env>/lib/python3.12/site-packages/torch/lib/libtorch_python.dylib\n  Reason: tried: '<python-env>/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib' (no such file)"
+      },
+      "evaluation_configuration": {
+        "target_column": "label",
+        "task_type": "classification",
+        "random_seed": 42,
+        "privacy_sample_size": 1000
+      },
+      "metrics": {},
+      "errors": [
+        {
+          "component": "generation",
+          "message": "ImportError: dlopen(<python-env>/lib/python3.12/site-packages/torch/_C.cpython-312-darwin.so, 0x0002): Library not loaded: @loader_path/libtorch_cpu.dylib\n  Referenced from: <0D3074B7-3BE2-33CD-9140-0D0F1EA662E8> <python-env>/lib/python3.12/site-packages/torch/lib/libtorch_python.dylib\n  Reason: tried: '<python-env>/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib' (no such file)"
+        }
+      ]
+    }
+  ]
+}

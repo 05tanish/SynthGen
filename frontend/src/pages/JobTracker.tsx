@@ -5,6 +5,7 @@ import { Download, ArrowLeft, AlertTriangle, X } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import EvaluationReportView from '../components/evaluation/EvaluationReportView';
 
 interface Job {
   id: number;
@@ -13,20 +14,13 @@ interface Job {
   current_step: string;
   progress_percent?: number;  // NEW: Progress tracking
   error_message: string | null;
-  evaluation_report: any | null;
+  evaluation_report: Record<string, any> | null;
+  generation_status?: string;
+  artifact_available?: boolean;
+  evaluation_status?: string;
+  quality_accepted?: boolean | null;
   created_at: string;
 }
-
-const ScoreCard = ({ label, value, color }: { label: string; value: number; color: string }) => (
-  <Card className="flex-1">
-    <CardContent className="flex flex-col items-center justify-center py-6 text-center">
-      <div style={{ fontSize: '2.5rem', fontWeight: 700, color }}>
-        {(value * 100).toFixed(0)}%
-      </div>
-      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{label}</div>
-    </CardContent>
-  </Card>
-);
 
 export default function JobTracker() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -222,15 +216,12 @@ export default function JobTracker() {
         </CardContent>
       </Card>
 
-      {isComplete && job.evaluation_report && (
-        <div className="flex flex-col gap-4 mt-4">
-          <h3 style={{ margin: 0 }}>Quality Metrics</h3>
-          <div className="flex gap-4 flex-wrap">
-            <ScoreCard label="Statistical Similarity" value={job.evaluation_report.statistical_score || 0.9} color="var(--info-color)" />
-            <ScoreCard label="Privacy Preservation" value={job.evaluation_report.privacy_score || 0.99} color="var(--success-color)" />
-            <ScoreCard label="ML Utility" value={job.evaluation_report.ml_utility_score || 0.85} color="var(--warning-color)" />
-          </div>
-        </div>
+      {job.evaluation_report && <div className="mt-4"><EvaluationReportView report={job.evaluation_report} /></div>}
+      {isComplete && !job.evaluation_report && (
+        <Card><CardContent style={{ padding: '1rem' }}>
+          <strong>Evaluation status: </strong>{job.evaluation_status || 'UNKNOWN'}
+          <p style={{ marginBottom: 0 }}>The artifact is available, but no evaluation report is available.</p>
+        </CardContent></Card>
       )}
     </div>
   );

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
 from fastapi.concurrency import run_in_threadpool
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.db.database import get_db
 from app.models.dataset import Dataset
 from app.models.job import Job, JobStatus
@@ -27,9 +27,13 @@ router = APIRouter()
 async def upload_dataset(
     file: UploadFile = File(...),
     prompt: Optional[str] = Form(None, max_length=2000),
+    evaluation_target: Optional[str] = Form(None, max_length=255),
+    evaluation_task: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if evaluation_task and evaluation_task not in {"classification", "regression"}:
+        raise HTTPException(status_code=400, detail="evaluation_task must be classification or regression")
     # Validate prompt length if provided
     if prompt and len(prompt) > 2000:
         raise HTTPException(status_code=400, detail="Prompt exceeds 2,000 character limit")
@@ -124,6 +128,10 @@ async def upload_dataset(
             row_count=final_row_count,
             column_count=loaded_data.column_count,
             prompt=prompt,
+            schema_json={"evaluation_config": {
+                "target_column": evaluation_target.strip() if evaluation_target else None,
+                "task_type": evaluation_task,
+            }},
             profile_json=profile,
             relationships_json=relationships,
             user_id=current_user.id,
@@ -153,6 +161,21 @@ class PromptGenerationRequest(BaseModel):
     prompt: str = Field(max_length=2000, description="User prompt (max 2,000 chars)")
     row_count: int = Field(default=1000, ge=1, le=30000, description="Number of rows to generate (max 30,000)")
     format: str = "CSV"    # Output format (future use)
+    evaluation_target: Optional[str] = Field(default=None, max_length=255)
+    evaluation_task: Optional[str] = None
+
+    @field_validator("evaluation_task")
+    @classmethod
+    def validate_evaluation_task(cls, value):
+        if value is not None and value not in {"classification", "regression"}:
+            raise ValueError("evaluation_task must be classification or regression")
+        return value
+
+    @field_validator("evaluation_target")
+    @classmethod
+    def normalize_evaluation_target(cls, value):
+        normalized = value.strip() if value else None
+        return normalized or None
 
 
 @router.post("/generate-from-prompt")
@@ -275,6 +298,10 @@ async def generate_from_prompt(
                 row_count=request.row_count,
                 column_count=loaded_data.column_count,
                 prompt=enriched_prompt,
+                schema_json={"evaluation_config": {
+                    "target_column": request.evaluation_target,
+                    "task_type": request.evaluation_task,
+                }},
                 profile_json=profile,
                 relationships_json=relationships,
                 user_id=current_user.id,

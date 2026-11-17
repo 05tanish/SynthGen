@@ -63,6 +63,29 @@ def _cleanup_temp_file(file_path: str):
             logger.warning(f"[CLEANUP] Could not delete {file_path}: {e}")
 
 
+def _select_generated_artifact(final_state: dict):
+    """Select a publishable artifact without treating it as quality acceptance."""
+    quality_accepted = final_state.get(
+        "quality_accepted", final_state.get("is_successful", False)
+    )
+    artifact_path = final_state.get("synthetic_data_path")
+    report = final_state.get("evaluation_report")
+
+    if not quality_accepted and final_state.get("best_synthetic_data_path"):
+        artifact_path = final_state["best_synthetic_data_path"]
+        report = final_state.get("best_evaluation_report")
+
+    available = bool(artifact_path and os.path.exists(artifact_path))
+    if available and not report:
+        report = {
+            "evaluation_status": "INCOMPLETE",
+            "quality_accepted": None,
+            "error_message": "A generated artifact is available, but no evaluation report was produced.",
+            "limitations": ["Quality was not evaluated successfully; no quality acceptance decision was made."],
+        }
+    return artifact_path, report, available
+
+
 def _reset_stale_running_jobs():
     """Reset jobs left RUNNING by a previous crash/deploy."""
     db = SessionLocal()
@@ -137,6 +160,7 @@ def run_generation_job(job_id: int):
                 "prompt": dataset.prompt,
                 "profile_json": dataset.profile_json,
                 "relationships_json": dataset.relationships_json or {},
+                "schema_json": dataset.schema_json or {},
             }
 
             job.status = JobStatus.RUNNING
@@ -192,10 +216,15 @@ def run_generation_job(job_id: int):
             "schema_json": ds["profile_json"],
             "profile_json": ds["profile_json"],
             "relationships_json": ds["relationships_json"],
+            "evaluation_config": (ds.get("schema_json") or {}).get("evaluation_config", {}),
+            "generator_metadata": None,
             "generation_plan": None,
             "synthetic_data_path": None,
             "evaluation_report": None,
             "evaluation_summary": None,
+            "evaluation_status": "PENDING",
+            "quality_accepted": None,
+            "evaluation_component": None,
             "best_synthetic_data_path": None,
             "best_evaluation_report": None,
             "best_evaluation_summary": None,
@@ -233,26 +262,19 @@ def run_generation_job(job_id: int):
 
     # ── 4. Process results and upload ────────────────────────────────────────
     try:
-        is_success = final_state.get("is_successful", False)
-        synth_tmp_path = final_state.get("synthetic_data_path")
-        report = final_state.get("evaluation_report")
+        previous_synth_path = final_state.get("synthetic_data_path")
+        synth_tmp_path, report, artifact_available = _select_generated_artifact(final_state)
+        quality_accepted = (report or {}).get("quality_accepted") if isinstance(report, dict) else None
+        if previous_synth_path != synth_tmp_path:
+            _cleanup_temp_file(previous_synth_path)
 
-        # Prefer best result if threshold wasn't met but data exists
-        if not is_success and final_state.get("best_synthetic_data_path"):
-            logger.info(f"[JOB {job_id}] Using best result (threshold not met).")
-            _cleanup_temp_file(synth_tmp_path)
-            synth_tmp_path = final_state.get("best_synthetic_data_path")
-            report = final_state.get("best_evaluation_report")
-            is_success = True
+        logger.info(f"[JOB {job_id}] Final: artifact_available={artifact_available} "
+                    f"evaluation_status={(report or {}).get('evaluation_status')} "
+                    f"quality_accepted={quality_accepted} path={synth_tmp_path}")
 
-        # If any data exists at all, treat as success — never discard generated data
-        if not is_success and synth_tmp_path and os.path.exists(synth_tmp_path):
-            logger.warning(f"[JOB {job_id}] is_successful=False but data exists — treating as success.")
-            is_success = True
-
-        logger.info(f"[JOB {job_id}] Final: is_success={is_success} path={synth_tmp_path}")
-
-        if is_success and synth_tmp_path and os.path.exists(synth_tmp_path):
+        # Existing product policy publishes generated artifacts even when the
+        # quality gate is not met. The evaluation report remains explicit.
+        if artifact_available:
             import uuid
             import pandas as pd
 

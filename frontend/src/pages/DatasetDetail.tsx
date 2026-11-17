@@ -6,6 +6,7 @@ import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
 import { Download, ArrowLeft, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import EvaluationReportView from '../components/evaluation/EvaluationReportView';
 
 interface DatasetInfo {
   id: number;
@@ -22,12 +23,8 @@ interface JobInfo {
   status: string;       // Backend returns uppercase: COMPLETED, FAILED, RUNNING, PENDING
   current_step: string;
   error_message?: string;
-  evaluation_report?: {
-    overall_score?: number;
-    statistical_score?: number;
-    privacy_score?: number;
-    ml_utility_score?: number;
-  };
+  evaluation_report?: Record<string, any> | null;
+  evaluation_status?: string;
 }
 
 /** Normalize backend uppercase enum → lowercase for safe comparisons */
@@ -259,35 +256,13 @@ const DatasetDetail: React.FC = () => {
 
       {/* Evaluation report */}
       {report && (
-        <Card>
-          <CardContent style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '1rem' }}>Quality Report</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
-              {[
-                { label: 'Overall Score', value: report.overall_score },
-                { label: 'Statistical', value: report.statistical_score },
-                { label: 'Privacy', value: report.privacy_score },
-                { label: 'ML Utility', value: report.ml_utility_score },
-              ].map(({ label, value }) => (
-                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
-                  {value != null ? (
-                    <>
-                      <p style={{ fontSize: '1.25rem', fontWeight: 600, color: value >= 0.7 ? 'var(--success-color)' : value >= 0.5 ? 'var(--warning-color)' : 'var(--error-color)' }}>
-                        {(value * 100).toFixed(0)}%
-                      </p>
-                      <div style={{ height: '4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '2px' }}>
-                        <div style={{ height: '100%', width: `${Math.round(value * 100)}%`, borderRadius: '2px', backgroundColor: value >= 0.7 ? 'var(--success-color)' : value >= 0.5 ? 'var(--warning-color)' : 'var(--error-color)' }} />
-                      </div>
-                    </>
-                  ) : (
-                    <p style={{ color: 'var(--text-muted)' }}>—</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <EvaluationReportView report={report} />
+      )}
+      {!report && jobStatusLower === 'completed' && (
+        <Card><CardContent style={{ padding: '1rem' }}>
+          <strong>Evaluation status: </strong>{job?.evaluation_status || 'UNKNOWN'}
+          <p style={{ marginBottom: 0 }}>The generated artifact is available, but no evaluation report was stored.</p>
+        </CardContent></Card>
       )}
 
       {/* Prompt */}

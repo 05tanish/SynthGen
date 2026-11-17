@@ -129,14 +129,22 @@ class BaseSyntheticGenerator(ABC):
         self.metadata = SingleTableMetadata()
         self.parameters = parameters or {}
         self.model = None
+        self.effective_parameters = {}
+        self.random_seed_applied = False
 
     @abstractmethod
     def fit(self, data: "pd.DataFrame"):
         pass
 
-    def generate(self, num_rows: int) -> "pd.DataFrame":
+    def generate(self, num_rows: int, random_seed: Optional[int] = None) -> "pd.DataFrame":
         if not self.model:
             raise ValueError("Model is not fitted yet.")
+        self.random_seed_applied = False
+        if random_seed is not None and hasattr(self.model, "_set_random_state"):
+            # SDV 1.x exposes this internal hook, while its public sample API
+            # does not accept a random seed. Guard it for version compatibility.
+            self.model._set_random_state(int(random_seed))
+            self.random_seed_applied = True
         return self.model.sample(num_rows=num_rows)
 
     def save_model(self, path: str):
@@ -153,6 +161,7 @@ class GaussianCopulaGenerator(BaseSyntheticGenerator):
         from sdv.single_table import GaussianCopulaSynthesizer
         self.metadata.detect_from_dataframe(data)
         safe = _sanitize_params(self.parameters, _GAUSSIAN_VALID_PARAMS, "GaussianCopula")
+        self.effective_parameters = safe
         self.model = GaussianCopulaSynthesizer(self.metadata, **safe)
         self.model.fit(data)
 
@@ -169,6 +178,7 @@ class CTGANGenerator(BaseSyntheticGenerator):
         safe = _sanitize_params(self.parameters, _CTGAN_VALID_PARAMS, "CTGAN")
         # 2. Fix pac/batch_size to avoid discriminator assertion
         safe = _safe_ctgan_params(n_rows=len(data), params=safe)
+        self.effective_parameters = safe
         logger.info(f"CTGANGenerator fitting with params: {safe}")
         self.model = CTGANSynthesizer(self.metadata, **safe)
         self.model.fit(data)
@@ -189,6 +199,7 @@ class TVAEGenerator(BaseSyntheticGenerator):
         if batch_size % 2 != 0:
             batch_size -= 1
         safe["batch_size"] = max(2, batch_size)
+        self.effective_parameters = safe
 
         self.model = TVAESynthesizer(self.metadata, **safe)
         self.model.fit(data)

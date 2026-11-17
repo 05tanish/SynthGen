@@ -48,6 +48,7 @@ temp/
 *.xlsx
 *.xls
 *.json
+!benchmark_results/*.json
 *.parquet
 !vercel.json
 !app/templates/**/*.csv

@@ -1,21 +1,48 @@
 import os
 import tempfile
+import time
+import platform
+import sys
+from datetime import datetime, timezone
 
 from app.graph.state import GraphState
 from app.agents.generation_planner_agent import GenerationPlannerAgent
 from app.agents.requirement_schema_agent import RequirementSchemaAgent
 from app.agents.optimization_agent import OptimizationAgent
-from app.agents.evaluation_agent import EvaluationAgent
 from app.tools.synthetic_generator import (
     GaussianCopulaGenerator, CTGANGenerator, TVAEGenerator,
     parse_row_count_from_prompt,
 )
 from app.tools.statistical_evaluator import evaluate_statistical_quality
+from app.tools.schema_evaluator import evaluate_schema_fidelity
 from app.tools.privacy_checker import evaluate_privacy_risk
 from app.tools.ml_utility_evaluator import evaluate_ml_utility
-from app.schemas.evaluation import EvaluationReport
+from app.schemas.evaluation import EvaluationReport, EvaluationStatus
 from app.core.logging import logger
-from app.core.config import settings
+
+
+def _create_generator(requested_model, parameters, allow_slow_models=None):
+    """Resolve requested versus actually executable synthesizer explicitly."""
+    actual_model = requested_model
+    effective_input = parameters or {}
+    fallback_reason = None
+    if allow_slow_models is None:
+        allow_slow_models = os.getenv("ALLOW_SLOW_MODELS", "false").lower() == "true"
+    if actual_model in ("CTGAN", "TVAE") and not allow_slow_models:
+        fallback_reason = "Slow model execution is disabled by ALLOW_SLOW_MODELS."
+        actual_model = "GaussianCopula"
+        effective_input = {}
+    if actual_model == "GaussianCopula":
+        generator = GaussianCopulaGenerator(parameters=effective_input)
+    elif actual_model == "CTGAN":
+        generator = CTGANGenerator(parameters=effective_input)
+    elif actual_model == "TVAE":
+        generator = TVAEGenerator(parameters=effective_input)
+    else:
+        fallback_reason = f"Unknown requested model: {actual_model}."
+        actual_model = "GaussianCopula"
+        generator = GaussianCopulaGenerator(parameters={})
+    return generator, actual_model, fallback_reason
 
 
 def plan_generation_node(state: GraphState) -> GraphState:
@@ -80,8 +107,11 @@ def generate_data_node(state: GraphState) -> GraphState:
 def _generate_data_node_impl(state: GraphState) -> GraphState:
 
     plan = state["generation_plan"]
-    model_name = plan["selected_model"]
+    requested_model = str(plan["selected_model"])
+    model_name = requested_model
     params = plan.get("parameters") or {}
+    fallback_reason = None
+    random_seed = int(plan.get("random_seed", 42))
 
     # Load real_data from file path (avoids keeping DataFrame in state)
     real_data_path = state.get("real_data_path")
@@ -143,24 +173,14 @@ def _generate_data_node_impl(state: GraphState) -> GraphState:
     # CTGAN/TVAE require 10-25 min of CPU-bound PyTorch training.
     # On Railway (shared CPU, ~512MB-1GB RAM) this causes OOM kills or timeouts.
     # Force GaussianCopula unless ALLOW_SLOW_MODELS=true is explicitly set.
-    import os as _os
-    if model_name in ("CTGAN", "TVAE") and _os.getenv("ALLOW_SLOW_MODELS", "false").lower() != "true":
+    generator, actual_model, fallback_reason = _create_generator(
+        requested_model, params
+    )
+    if fallback_reason:
         logger.warning(
-            f"Model '{model_name}' selected by planner but overridden to GaussianCopula. "
-            f"Set ALLOW_SLOW_MODELS=true to enable CTGAN/TVAE (requires high-memory server)."
+            f"Requested model '{requested_model}' resolved to '{actual_model}': {fallback_reason}"
         )
-        model_name = "GaussianCopula"
-        params = {}
-
-    if model_name == "GaussianCopula":
-        generator = GaussianCopulaGenerator(parameters=params)
-    elif model_name == "CTGAN":
-        generator = CTGANGenerator(parameters=params)
-    elif model_name == "TVAE":
-        generator = TVAEGenerator(parameters=params)
-    else:
-        logger.warning(f"Unknown model '{model_name}', falling back to GaussianCopula.")
-        generator = GaussianCopulaGenerator(parameters={})
+    model_name = actual_model
 
     logger.info(f"Fitting {model_name} on {len(fit_df)} rows...")
     # Run the fit in a thread with a hard timeout.
@@ -168,6 +188,7 @@ def _generate_data_node_impl(state: GraphState) -> GraphState:
     # Without a timeout the worker thread blocks forever and Railway kills the container.
     import concurrent.futures
     FIT_TIMEOUT_SECONDS = 600  # 10 minutes max per fit attempt
+    fit_started = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(generator.fit, fit_df)
         try:
@@ -177,6 +198,7 @@ def _generate_data_node_impl(state: GraphState) -> GraphState:
                 f"{model_name} model fitting exceeded {FIT_TIMEOUT_SECONDS}s timeout. "
                 f"Try reducing MAX_ITERATIONS or dataset size."
             )
+    fit_runtime_seconds = time.perf_counter() - fit_started
 
     # Priority order for row count:
     # 1. User's natural-language prompt (e.g. "generate 500 rows")
@@ -197,7 +219,9 @@ def _generate_data_node_impl(state: GraphState) -> GraphState:
         logger.info(f"Using row count from real data length: {row_count}")
 
     logger.info(f"Generating {row_count} rows...")
-    synthetic_df = generator.generate(num_rows=row_count)
+    sample_started = time.perf_counter()
+    synthetic_df = generator.generate(num_rows=row_count, random_seed=random_seed)
+    sample_runtime_seconds = time.perf_counter() - sample_started
 
     # Store synthetic data to a temp file to avoid non-serializable DataFrame in state
     tmp_file = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
@@ -205,24 +229,83 @@ def _generate_data_node_impl(state: GraphState) -> GraphState:
     tmp_file.close()
 
     state["synthetic_data_path"] = tmp_file.name
+    try:
+        from importlib.metadata import version
+        sdv_version = version("sdv")
+    except Exception:
+        sdv_version = None
+    state["generator_metadata"] = {
+        "requested_generator": requested_model,
+        "actual_generator": model_name,
+        "fallback_reason": fallback_reason,
+        "effective_parameters": generator.effective_parameters,
+        "random_seed": random_seed,
+        "sampling_seed_applied": bool(getattr(generator, "random_seed_applied", False)),
+        "seed_scope": "SDV sampling state; model fitting may use library/framework randomness",
+        "sdv_version": sdv_version,
+        "fit_row_count": int(len(fit_df)),
+        "source_row_count": int(original_row_count),
+        "generated_row_count": int(len(synthetic_df)),
+        "generated_column_count": int(len(synthetic_df.columns)),
+        "fit_runtime_seconds": fit_runtime_seconds,
+        "sampling_runtime_seconds": sample_runtime_seconds,
+    }
     state["status_message"] = f"Generated {row_count} rows using {model_name} (fitted on {len(fit_df)} rows)."
     return state
 
 
 def evaluate_data_node(state: GraphState) -> GraphState:
     logger.info("Executing evaluate_data_node...")
+    evaluation_started = time.perf_counter()
+    state["evaluation_status"] = EvaluationStatus.RUNNING.value
     try:
         return _evaluate_data_node_impl(state)
     except Exception as e:
         logger.error(f"evaluate_data_node failed: {e}", exc_info=True)
-        # Don't crash — treat as a low-score pass so the best result is saved
-        state["is_successful"] = True  # allow saving whatever was generated
-        state["iteration"] = state.get("max_iterations", 1)
-        state["status_message"] = f"Evaluation error (using generated data anyway): {str(e)[:200]}"
+        failed_component = state.get("evaluation_component", "evaluation_pipeline")
+        component_statuses = {
+            "schema_fidelity": "NOT_RUN",
+            "statistical_fidelity": "NOT_RUN",
+            "privacy_risk": "NOT_RUN",
+            "ml_utility": "NOT_RUN",
+        }
+        component_key = {
+            "schema": "schema_fidelity",
+            "statistical": "statistical_fidelity",
+            "privacy": "privacy_risk",
+            "ml_utility": "ml_utility",
+        }.get(failed_component)
+        if component_key:
+            component_statuses[component_key] = "FAILED"
+        report = EvaluationReport(
+            evaluation_status=EvaluationStatus.FAILED,
+            quality_accepted=None,
+            failed_component=failed_component,
+            error_message=str(e)[:500],
+            errors=[{
+                "component": state.get("evaluation_component", "evaluation_pipeline"),
+                "message": str(e)[:500],
+                "exception_type": type(e).__name__,
+            }],
+            component_statuses=component_statuses,
+            execution_metadata={
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "runtime_seconds": time.perf_counter() - evaluation_started,
+                "generator": state.get("generator_metadata") or {},
+            },
+            limitations=["Quality was not evaluated successfully; no quality acceptance decision was made."],
+        )
+        state["evaluation_status"] = EvaluationStatus.FAILED.value
+        state["quality_accepted"] = None
+        state["is_successful"] = False
+        state["evaluation_report"] = report.model_dump(mode="json")
+        state["evaluation_summary"] = "Evaluation failed; generated data was not quality-evaluated."
+        state["status_message"] = f"Evaluation failed: {str(e)[:200]}"
         return state
 
 
 def _evaluate_data_node_impl(state: GraphState) -> GraphState:
+    evaluation_started = time.perf_counter()
 
     real_data_path = state.get("real_data_path")
     synth_data_path = state.get("synthetic_data_path")
@@ -236,62 +319,142 @@ def _evaluate_data_node_impl(state: GraphState) -> GraphState:
     real_df = pd.read_csv(real_data_path)
     synth_df = pd.read_csv(synth_data_path)
 
-    stat_result = evaluate_statistical_quality(real_df, synth_df)
-    priv_result = evaluate_privacy_risk(real_df, synth_df)
-    ml_result = evaluate_ml_utility(real_df, synth_df)
+    state["evaluation_component"] = "ml_utility"
+    evaluation_config = state.get("evaluation_config") or {}
+    component_errors = []
 
-    # Calculate overall weighted score
-    overall_score = (
-        stat_result["score"] * 0.4
-        + priv_result["score"] * 0.4
-        + ml_result["score"] * 0.2
+    def evaluate_component(name, evaluator):
+        state["evaluation_component"] = name
+        try:
+            return evaluator()
+        except Exception as exc:
+            error = {
+                "component": name,
+                "message": str(exc)[:500],
+                "exception_type": type(exc).__name__,
+            }
+            component_errors.append(error)
+            logger.error(f"{name} evaluation failed: {exc}", exc_info=True)
+            return {
+                "status": "FAILED",
+                "errors": [error],
+                "limitations": [f"{name} metrics were not produced because evaluation raised an exception."],
+            }
+
+    schema_result = evaluate_component(
+        "schema", lambda: evaluate_schema_fidelity(real_df, synth_df)
     )
-
-    # Use configurable thresholds from settings
-    quality_threshold = settings.QUALITY_THRESHOLD
-    privacy_threshold = max(0.5, quality_threshold - 0.15)  # privacy floor scales with quality
-    is_successful = overall_score >= quality_threshold and priv_result["score"] >= privacy_threshold
-
-    logger.info(
-        f"Evaluation: overall={overall_score:.3f} (threshold={quality_threshold}), "
-        f"privacy={priv_result['score']:.3f} (threshold={privacy_threshold:.2f}), "
-        f"passed={is_successful}"
+    stat_result = evaluate_component(
+        "statistical",
+        lambda: evaluate_statistical_quality(
+            real_df,
+            synth_df,
+            schema_result=schema_result if schema_result.get("status") != "FAILED" else None,
+        ),
     )
+    priv_result = evaluate_component(
+        "privacy", lambda: evaluate_privacy_risk(real_df, synth_df)
+    )
+    ml_result = evaluate_component(
+        "ml_utility",
+        lambda: evaluate_ml_utility(
+            real_df,
+            synth_df,
+            target_column=evaluation_config.get("target_column"),
+            task_type=evaluation_config.get("task_type"),
+            random_seed=int(evaluation_config.get("random_seed", 42)),
+        ),
+    )
+    state.pop("evaluation_component", None)
+
+    # Components remain independent. No weighted aggregate is calculated from
+    # metrics with different meanings or units.
+    is_successful = False
+    component_statuses = {
+        "schema_fidelity": schema_result.get("status", "UNKNOWN"),
+        "statistical_fidelity": stat_result.get("status", "UNKNOWN"),
+        "privacy_risk": priv_result.get("status", "UNKNOWN"),
+        "ml_utility": ml_result.get("status", "UNKNOWN"),
+    }
+    evaluation_status = (
+        EvaluationStatus.FAILED.value
+        if component_errors
+        else EvaluationStatus.INCOMPLETE.value
+        if any(status in {"INCOMPLETE", "FAILED"} for status in component_statuses.values())
+        else EvaluationStatus.COMPLETED.value
+    )
+    for result in (schema_result, stat_result, priv_result, ml_result):
+        for error in result.get("errors", []):
+            if error not in component_errors:
+                component_errors.append(error)
+    dependency_versions = {}
+    try:
+        from importlib.metadata import version
+        for package in ("pandas", "numpy", "scipy", "scikit-learn", "sdv"):
+            try:
+                dependency_versions[package] = version(package)
+            except Exception:
+                dependency_versions[package] = None
+    except Exception:
+        dependency_versions = {}
+    execution_metadata = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "runtime_seconds": time.perf_counter() - evaluation_started,
+        "real_dimensions": {"rows": int(len(real_df)), "columns": int(len(real_df.columns))},
+        "synthetic_dimensions": {"rows": int(len(synth_df)), "columns": int(len(synth_df.columns))},
+        "evaluation_configuration": {
+            "target_column": evaluation_config.get("target_column"),
+            "task_type": evaluation_config.get("task_type"),
+            "random_seed": int(evaluation_config.get("random_seed", 42)),
+        },
+        "generator": state.get("generator_metadata") or {},
+        "dependency_versions": dependency_versions,
+        "runtime_environment": {
+            "platform": platform.platform(),
+            "python_version": sys.version.split()[0],
+            "logical_cpu_count": os.cpu_count(),
+        },
+    }
 
     report = EvaluationReport(
-        statistical_score=stat_result["score"],
-        privacy_score=priv_result["score"],
-        ml_utility_score=ml_result["score"],
-        overall_score=overall_score,
-        passed=is_successful,
-        statistical_details=stat_result["details"],
-        privacy_details=priv_result["details"],
-        ml_utility_details=ml_result["details"],
+        evaluation_status=evaluation_status,
+        quality_accepted=None,
+        failed_component=component_errors[0]["component"] if component_errors else None,
+        error_message=component_errors[0]["message"] if component_errors else None,
+        statistical_details=stat_result,
+        schema_details=schema_result,
+        privacy_details=priv_result,
+        ml_utility_details=ml_result,
+        component_statuses=component_statuses,
+        errors=component_errors,
+        execution_metadata=execution_metadata,
+        limitations=[
+            "Component completion does not imply quality acceptance.",
+            "Privacy indicators are empirical and do not provide formal privacy guarantees.",
+        ],
     )
 
-    eval_agent = EvaluationAgent()
-    try:
-        summary = eval_agent.summarize_evaluation(report)
-    except Exception as e:
-        logger.error(f"EvaluationAgent failed to summarize, using fallback: {e}")
-        summary = f"Overall score: {overall_score:.2f}. Passed: {is_successful}."
+    summary = (
+        "Schema and statistical fidelity metrics completed. "
+        "No combined quality acceptance decision was made."
+    )
 
-    # Track the best result seen so far (by overall_score) so we can save it
-    # even if we never reach the threshold after all iterations.
-    best_score = (state.get("best_evaluation_report") or {}).get("overall_score", 0.0)
-    if overall_score >= best_score:
+    # Preserve a usable generated artifact/report without ranking incomparable
+    # metric families by a made-up aggregate.
+    if not state.get("best_evaluation_report"):
         state["best_synthetic_data_path"] = state.get("synthetic_data_path")
-        state["best_evaluation_report"] = report.model_dump()
+        state["best_evaluation_report"] = report.model_dump(mode="json")
         state["best_evaluation_summary"] = summary
 
-    state["evaluation_report"] = report.model_dump()
+    state["evaluation_report"] = report.model_dump(mode="json")
+    state["evaluation_status"] = evaluation_status
+    state["quality_accepted"] = None
     state["evaluation_summary"] = summary
     state["is_successful"] = is_successful
     state["iteration"] = state.get("iteration", 0) + 1
 
-    status = "SUCCESS" if is_successful else "FAILED"
     state["status_message"] = (
-        f"Evaluation {status}. Overall Score: {overall_score:.2f} / threshold {quality_threshold}."
+        f"Evaluation {evaluation_status.lower()}. Quality acceptance is undecided; see component-level metrics."
     )
 
     return state

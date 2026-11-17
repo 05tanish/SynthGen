@@ -10,6 +10,30 @@ import httpx
 
 router = APIRouter()
 
+
+def _evaluation_response_fields(job: Job) -> dict:
+    report = job.evaluation_report_json
+    generation_status = job.status.value.lower() if hasattr(job.status, 'value') else str(job.status).lower()
+    if isinstance(report, dict):
+        status = report.get("evaluation_status", "UNKNOWN")
+    elif generation_status in {"pending", "running"}:
+        status = "PENDING"
+    elif generation_status == "completed":
+        status = "INCOMPLETE"
+    else:
+        status = "UNKNOWN"
+    # Historical reports contain a `passed` field but no lifecycle status. Do
+    # not reinterpret those old records as proof the current evaluation ran.
+    quality_accepted = None
+    if status == "COMPLETED":
+        quality_accepted = (report or {}).get("quality_accepted", (report or {}).get("passed"))
+    return {
+        "generation_status": generation_status,
+        "artifact_available": bool(job.synthetic_file_path),
+        "evaluation_status": status,
+        "quality_accepted": quality_accepted,
+    }
+
 @router.get("/{job_id}")
 def get_job_status(job_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
@@ -28,6 +52,7 @@ def get_job_status(job_id: int, db: Session = Depends(get_db), current_user: Use
         "progress_percent": progress,
         "error_message": job.error_message,
         "evaluation_report": job.evaluation_report_json,
+        **_evaluation_response_fields(job),
         "created_at": job.created_at,
         "updated_at": job.updated_at
     }
@@ -101,6 +126,7 @@ def get_job_by_dataset(dataset_id: int, db: Session = Depends(get_db), current_u
         "current_step": job.current_step,
         "error_message": job.error_message,
         "evaluation_report": job.evaluation_report_json,
+        **_evaluation_response_fields(job),
         "created_at": job.created_at,
         "updated_at": job.updated_at,
     }

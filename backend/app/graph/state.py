@@ -19,6 +19,8 @@ class GraphState(TypedDict):
     schema_json: Optional[Dict[str, Any]]
     profile_json: Optional[Dict[str, Any]]
     relationships_json: Optional[Dict[str, Any]]
+    evaluation_config: Optional[Dict[str, Any]]
+    generator_metadata: Optional[Dict[str, Any]]
 
     # Plans
     generation_plan: Optional[Dict[str, Any]]
@@ -29,6 +31,9 @@ class GraphState(TypedDict):
     # Evaluation
     evaluation_report: Optional[Dict[str, Any]]
     evaluation_summary: Optional[str]
+    evaluation_status: Optional[str]
+    quality_accepted: Optional[bool]
+    evaluation_component: Optional[str]
 
     # Best Tracking (for fallback if iterations exhausted)
     best_synthetic_data_path: Optional[str]

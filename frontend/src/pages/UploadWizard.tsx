@@ -28,6 +28,8 @@ const Generate: React.FC = () => {
   const [prompt, setPrompt] = useState(navState?.prompt || '');
   const [rows, setRows] = useState(500);
   const [format, setFormat] = useState('CSV');
+  const [evaluationTarget, setEvaluationTarget] = useState('');
+  const [evaluationTask, setEvaluationTask] = useState('');
   const [genStatus, setGenStatus] = useState<GenerationStatus>('idle');
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState<number | null>(null);
@@ -117,6 +119,8 @@ const Generate: React.FC = () => {
           generationPrompt = `Generate exactly ${rows} rows based on this dataset. ${generationPrompt}`.trim();
         }
         formData.append('prompt', generationPrompt);
+        if (evaluationTarget.trim()) formData.append('evaluation_target', evaluationTarget.trim());
+        if (evaluationTask) formData.append('evaluation_task', evaluationTask);
         const uploadRes = await axios.post(`${API_BASE}/api/datasets/upload`, formData);
         const datasetId = uploadRes.data.id;
         const genRes = await axios.post(`${API_BASE}/api/datasets/${datasetId}/generate`);
@@ -126,6 +130,8 @@ const Generate: React.FC = () => {
           prompt: prompt.trim(),
           row_count: rows,
           format,
+          evaluation_target: evaluationTarget.trim() || null,
+          evaluation_task: evaluationTask || null,
         });
         newJobId = genRes.data.job_id;
       }
@@ -435,6 +441,26 @@ const Generate: React.FC = () => {
               </select>
             </div>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <Input
+              label="Evaluation target (optional)"
+              type="text"
+              value={evaluationTarget}
+              onChange={(e) => setEvaluationTarget(e.target.value)}
+              placeholder="e.g. churned"
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+              <label className="input-label">Prediction task (optional)</label>
+              <select className="input-control" value={evaluationTask} onChange={(e) => setEvaluationTask(e.target.value)}>
+                <option value="">Not configured</option>
+                <option value="classification">Classification</option>
+                <option value="regression">Regression</option>
+              </select>
+            </div>
+          </div>
+          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+            ML utility is reported as unavailable until both fields identify a prediction task.
+          </p>
         </CardContent>
       </Card>
 
